@@ -52,3 +52,16 @@ CREATE TABLE core.repos (
     latest_release_at timestamptz NULL,
     collected_at timestamptz NOT NULL DEFAULT now()
 );
+
+CREATE TABLE core.readmes (
+    repo_id bigint PRIMARY KEY REFERENCES core.repos (id) ON DELETE CASCADE,
+    text text NULL,
+    collected_at timestamptz NOT NULL DEFAULT  now()
+);
+
+CREATE TABLE core.repo_tree_entries (
+    repo_id bigint NOT NULL REFERENCES core.repos (id) ON DELETE CASCADE,
+    path text NOT NULL,
+    type text CHECK(type in ('blob', 'tree', 'commit')) NOT NULL,
+    PRIMARY KEY (repo_id, path)
+);
