@@ -1,4 +1,4 @@
-package ru.spbpu.ghanalytics.worldbank;
+package ru.spbstu.ghanalytics.worldbank;
 
 import org.junit.jupiter.api.Test;
 

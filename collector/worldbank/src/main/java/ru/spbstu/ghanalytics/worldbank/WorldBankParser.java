@@ -1,4 +1,4 @@
-package ru.spbpu.ghanalytics.worldbank;
+package ru.spbstu.ghanalytics.worldbank;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;

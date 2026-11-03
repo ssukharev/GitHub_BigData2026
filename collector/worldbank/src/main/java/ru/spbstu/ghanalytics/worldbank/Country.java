@@ -1,4 +1,4 @@
-package ru.spbpu.ghanalytics.worldbank;
+package ru.spbstu.ghanalytics.worldbank;
 
 /**
  * Row of {@code core.countries}.

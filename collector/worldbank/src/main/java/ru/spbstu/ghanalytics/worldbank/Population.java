@@ -1,4 +1,4 @@
-package ru.spbpu.ghanalytics.worldbank;
+package ru.spbstu.ghanalytics.worldbank;
 
 /**
  * Row of {@code core.population}. {@code population} is a long: aggregates such as World exceed int.

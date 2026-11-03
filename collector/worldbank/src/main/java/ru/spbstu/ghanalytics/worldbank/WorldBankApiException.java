@@ -1,4 +1,4 @@
-package ru.spbpu.ghanalytics.worldbank;
+package ru.spbstu.ghanalytics.worldbank;
 
 /** The API returned an error or a response we cannot parse. */
 public class WorldBankApiException extends RuntimeException {
