@@ -65,3 +65,32 @@ CREATE TABLE core.repo_tree_entries (
     type text CHECK(type in ('blob', 'tree', 'commit')) NOT NULL,
     PRIMARY KEY (repo_id, path)
 );
+
+CREATE TABLE core.repo_commits_weekly (
+    repo_id bigint NOT NULL REFERENCES core.repos (id) ON DELETE CASCADE,
+    week date NOT NULL,
+    commits int CHECK(commits >= 0) NOT NULL,
+    contributors int CHECK(contributors >= 0),
+    PRIMARY KEY (repo_id, week)
+);
+
+CREATE TABLE core.gh_activity_hourly (
+    ts_hour timestamptz NOT NULL,
+    event_type text NOT NULL,
+    is_bot boolean NOT NULL,
+    events bigint CHECK(events >= 0) NOT NULL,
+    actors bigint CHECK(actors >= 0) NOT NULL,
+    commits bigint CHECK(commits >= 0) NULL,
+    PRIMARY KEY (ts_hour, event_type, is_bot)
+);
+
+CREATE TABLE core.gh_activity_monthly (
+    month date NOT NULL CHECK(extract(day FROM month) = 1),
+    event_type text NOT NULL,
+    is_bot boolean NOT NULL,
+    events bigint CHECK(events >= 0) NOT NULL,
+    actors bigint CHECK(actors >= 0) NOT NULL,
+    repos bigint CHECK(repos >= 0) NOT NULL,
+    commits bigint CHECK(commits >= 0) NULL,
+    PRIMARY KEY (month, event_type, is_bot)
+);
