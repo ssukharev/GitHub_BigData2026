@@ -10,6 +10,8 @@ CREATE TABLE raw.github_responses (
     payload jsonb NOT NULL
 );
 
+CREATE INDEX github_responses_source_request_key_idx ON raw.github_responses(source, request_key);
+
 CREATE TABLE core.repos (
     id bigint PRIMARY KEY,
     node_id text NOT NULL UNIQUE,
@@ -47,7 +49,7 @@ CREATE TABLE core.repos (
     stats_truncated boolean NULL,
 
     topics text[] NOT NULL DEFAULT '{}',
-    languages jsonb CHECK (jsonb_typeof(languages) = 'object'),
+    languages jsonb CHECK(jsonb_typeof(languages) = 'object'),
     archived_at timestamptz NULL,
     latest_release_at timestamptz NULL,
     collected_at timestamptz NOT NULL DEFAULT now()
@@ -93,4 +95,24 @@ CREATE TABLE core.gh_activity_monthly (
     repos bigint CHECK(repos >= 0) NOT NULL,
     commits bigint CHECK(commits >= 0) NULL,
     PRIMARY KEY (month, event_type, is_bot)
+);
+
+CREATE TABLE core.collection_runs (
+    id bigserial PRIMARY KEY,
+    source text NOT NULL,
+    started_at timestamptz NOT NULL DEFAULT now(),
+    finished_at timestamptz NULL,
+    rows bigint CHECK(rows >= 0) NULL,
+    status text CHECK(status in ('running', 'success', 'failed')) NOT NULL DEFAULT 'running',
+    error text NULL,
+    params jsonb CHECK(jsonb_typeof(params) = 'object') NOT NULL,
+    stats jsonb CHECK(jsonb_typeof(stats) = 'object') NULL
+);
+
+CREATE TABLE core.checkpoints (
+    source text NOT NULL,
+    key text NOT NULL,
+    value text NOT NULL,
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (source, key)
 );
