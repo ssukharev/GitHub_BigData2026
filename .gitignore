@@ -23,8 +23,14 @@
 hs_err_pid*
 replay_pid*
 
+# локальные секреты и дампы
+.env
+*.dump
+dumps/
+
+# IntelliJ IDEA
+.idea/
+*.iml
+
 # Maven
 target/
-
-# IDE
-.idea/
