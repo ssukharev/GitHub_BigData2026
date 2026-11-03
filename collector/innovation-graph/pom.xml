@@ -5,7 +5,7 @@
     <modelVersion>4.0.0</modelVersion>
 
     <!-- Standalone until the collector parent POM exists; then switch to <parent>. -->
-    <groupId>ru.spbpu.ghanalytics</groupId>
+    <groupId>ru.spbstu.ghanalytics</groupId>
     <artifactId>collector-innovation-graph</artifactId>
     <version>0.1.0-SNAPSHOT</version>
     <name>collector-innovation-graph</name>

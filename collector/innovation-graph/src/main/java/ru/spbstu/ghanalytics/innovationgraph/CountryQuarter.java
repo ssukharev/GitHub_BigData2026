@@ -1,4 +1,4 @@
-package ru.spbpu.ghanalytics.innovationgraph;
+package ru.spbstu.ghanalytics.innovationgraph;
 
 import java.util.Comparator;
 import java.util.regex.Pattern;

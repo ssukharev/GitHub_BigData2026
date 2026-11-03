@@ -1,4 +1,4 @@
-package ru.spbpu.ghanalytics.innovationgraph;
+package ru.spbstu.ghanalytics.innovationgraph;
 
 /**
  * Row of {@code core.innovation_graph_topics}.

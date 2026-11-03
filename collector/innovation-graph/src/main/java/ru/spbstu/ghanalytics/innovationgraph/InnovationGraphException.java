@@ -1,4 +1,4 @@
-package ru.spbpu.ghanalytics.innovationgraph;
+package ru.spbstu.ghanalytics.innovationgraph;
 
 /** Download failed or the CSV does not look like the Innovation Graph data we expect. */
 public class InnovationGraphException extends RuntimeException {

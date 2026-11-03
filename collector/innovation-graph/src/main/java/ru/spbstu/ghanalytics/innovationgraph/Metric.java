@@ -1,4 +1,4 @@
-package ru.spbpu.ghanalytics.innovationgraph;
+package ru.spbstu.ghanalytics.innovationgraph;
 
 /** Per-economy metrics that have one value per country and quarter. The file name equals the value column. */
 enum Metric {
