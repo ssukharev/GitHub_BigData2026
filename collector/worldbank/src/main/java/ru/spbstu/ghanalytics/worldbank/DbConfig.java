@@ -53,22 +53,38 @@ public record DbConfig(String url, String user, String password) {
         return Map.of();
     }
 
+    /**
+     * Reads {@code .env} the way docker compose does for what we use: {@code KEY=value}, an optional
+     * {@code export } prefix, quoted values, and a {@code # comment} after whitespace in an unquoted value.
+     * Otherwise compose and the loaders could see different passwords.
+     */
     static Map<String, String> parseDotEnv(String text) {
         Map<String, String> vars = new HashMap<>();
         for (String line : text.split("\\R")) {
             String s = line.strip();
+            if (s.startsWith("export ")) {
+                s = s.substring("export ".length()).strip();
+            }
             int eq = s.indexOf('=');
             if (s.isEmpty() || s.startsWith("#") || eq <= 0) {
                 continue;
             }
-            String value = s.substring(eq + 1).strip();
-            if (value.length() >= 2 && (value.startsWith("\"") && value.endsWith("\"")
-                    || value.startsWith("'") && value.endsWith("'"))) {
-                value = value.substring(1, value.length() - 1);
-            }
-            vars.put(s.substring(0, eq).strip(), value);
+            vars.put(s.substring(0, eq).strip(), dotEnvValue(s.substring(eq + 1).strip()));
         }
         return vars;
+    }
+
+    private static String dotEnvValue(String raw) {
+        if (!raw.isEmpty() && (raw.charAt(0) == '"' || raw.charAt(0) == '\'')) {
+            int end = raw.indexOf(raw.charAt(0), 1);
+            return end > 0 ? raw.substring(1, end) : raw.substring(1);
+        }
+        for (int i = 1; i < raw.length(); i++) {
+            if (raw.charAt(i) == '#' && Character.isWhitespace(raw.charAt(i - 1))) {
+                return raw.substring(0, i).strip();
+            }
+        }
+        return raw;
     }
 
     @Override

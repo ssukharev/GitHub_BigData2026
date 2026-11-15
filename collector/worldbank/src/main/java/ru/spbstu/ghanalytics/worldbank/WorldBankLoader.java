@@ -44,8 +44,8 @@ public final class WorldBankLoader {
                         "aggregates", countries.stream().filter(Country::aggregate).count(),
                         "population", result.population())));
                 return result;
-            } catch (RuntimeException | SQLException e) {
-                CollectionRuns.fail(log, runId, e);
+            } catch (RuntimeException | SQLException | Error e) {
+                CollectionRuns.recordFailure(log, runId, e);
                 throw e;
             }
         }
