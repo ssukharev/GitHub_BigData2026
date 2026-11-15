@@ -34,7 +34,8 @@
 | `core.gh_activity_hourly` | ts_hour, event_type, is_bot, events, actors, commits | (ts_hour, event_type, is_bot) | Стас (GH Archive) | Антон, Сергей |
 | `core.gh_activity_monthly` | month, event_type, is_bot, events, actors, repos, commits | (month, event_type, is_bot) | Стас (GH Archive) | Сергей |
 | `core.countries` | country_code (ISO-2), iso3_code, name, region, is_aggregate | country_code | Сергей | Сергей |
-| `core.innovation_graph` | country_code, year, quarter, developers, repositories | (country_code, year, quarter) | Сергей | Сергей |
+| `core.innovation_graph` | country_code, year, quarter, developers, repositories, git_pushes | (country_code, year, quarter) | Сергей | Сергей |
+| `core.innovation_graph_topics` | country_code, year, quarter, topic, pushers | (country_code, year, quarter, topic) | Сергей | Сергей |
 | `core.population` | country_code, year, population (bigint) | (country_code, year) | Сергей | Сергей |
 | `core.star_history_daily` | repo_id, day, stars | (repo_id, day) | Антон | Антон |
 | `core.repo_labels` | repo_id, type, source (manual/llm), labeled_by | repo_id | Елисей | Елисей |
@@ -46,6 +47,9 @@
 - `commits` - число коммитов в PushEvent (суммируется по событиям), `actors` - число уникальных авторов событий; `actors` по часам не суммируется
 - `repos.stars`, `forks`, `pushed_at`, `size_kb` - значения на момент `collected_at`; как признаки для прогноза не использовать, брать `star_history_daily` и `repo_commits_weekly` до даты отсечки
 - `star_history_daily.stars` - кумулятивное число звёзд на конец дня, строка на каждый день
+- `countries.country_code` - ISO-2; у агрегатов World Bank (World, EU, группы по доходу) свои коды (`1W`, `ZH`), у них `is_aggregate = true` и `region` пустой. Коды Innovation Graph, которых нет в World Bank (`TW` и др.), добавлены в справочник миграцией
+- `innovation_graph.developers` и `repositories` - на конец квартала, `git_pushes` - за квартал, `pushers` в `innovation_graph_topics` - уникальные разработчики страны, пушившие в репозитории с этим топиком. Метрика `NULL`, если GitHub её не опубликовал (меньше 100 разработчиков); в `innovation_graph` нет FK на `countries`, неизвестные коды сверяет сборщик
+- строки `EU` в Innovation Graph - агрегат, с отдельными странами ЕС их суммировать нельзя
 
 Миграции - Flyway в Java-проекте, единственный источник схемы. Новая таблица добавляется миграцией через PR.
 

@@ -10,6 +10,8 @@ CREATE TABLE raw.github_responses (
     payload jsonb NOT NULL
 );
 
+CREATE INDEX github_responses_source_request_key_idx ON raw.github_responses(source, request_key);
+
 CREATE TABLE core.repos (
     id bigint PRIMARY KEY,
     node_id text NOT NULL UNIQUE,
@@ -47,8 +49,70 @@ CREATE TABLE core.repos (
     stats_truncated boolean NULL,
 
     topics text[] NOT NULL DEFAULT '{}',
-    languages jsonb CHECK (jsonb_typeof(languages) = 'object'),
+    languages jsonb CHECK(jsonb_typeof(languages) = 'object'),
     archived_at timestamptz NULL,
     latest_release_at timestamptz NULL,
     collected_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE core.readmes (
+    repo_id bigint PRIMARY KEY REFERENCES core.repos (id) ON DELETE CASCADE,
+    text text NULL,
+    collected_at timestamptz NOT NULL DEFAULT  now()
+);
+
+CREATE TABLE core.repo_tree_entries (
+    repo_id bigint NOT NULL REFERENCES core.repos (id) ON DELETE CASCADE,
+    path text NOT NULL,
+    type text CHECK(type in ('blob', 'tree', 'commit')) NOT NULL,
+    PRIMARY KEY (repo_id, path)
+);
+
+CREATE TABLE core.repo_commits_weekly (
+    repo_id bigint NOT NULL REFERENCES core.repos (id) ON DELETE CASCADE,
+    week date NOT NULL,
+    commits int CHECK(commits >= 0) NOT NULL,
+    contributors int CHECK(contributors >= 0),
+    PRIMARY KEY (repo_id, week)
+);
+
+CREATE TABLE core.gh_activity_hourly (
+    ts_hour timestamptz NOT NULL,
+    event_type text NOT NULL,
+    is_bot boolean NOT NULL,
+    events bigint CHECK(events >= 0) NOT NULL,
+    actors bigint CHECK(actors >= 0) NOT NULL,
+    commits bigint CHECK(commits >= 0) NULL,
+    PRIMARY KEY (ts_hour, event_type, is_bot)
+);
+
+CREATE TABLE core.gh_activity_monthly (
+    month date NOT NULL CHECK(extract(day FROM month) = 1),
+    event_type text NOT NULL,
+    is_bot boolean NOT NULL,
+    events bigint CHECK(events >= 0) NOT NULL,
+    actors bigint CHECK(actors >= 0) NOT NULL,
+    repos bigint CHECK(repos >= 0) NOT NULL,
+    commits bigint CHECK(commits >= 0) NULL,
+    PRIMARY KEY (month, event_type, is_bot)
+);
+
+CREATE TABLE core.collection_runs (
+    id bigserial PRIMARY KEY,
+    source text NOT NULL,
+    started_at timestamptz NOT NULL DEFAULT now(),
+    finished_at timestamptz NULL,
+    rows bigint CHECK(rows >= 0) NULL,
+    status text CHECK(status in ('running', 'success', 'failed')) NOT NULL DEFAULT 'running',
+    error text NULL,
+    params jsonb CHECK(jsonb_typeof(params) = 'object') NOT NULL,
+    stats jsonb CHECK(jsonb_typeof(stats) = 'object') NULL
+);
+
+CREATE TABLE core.checkpoints (
+    source text NOT NULL,
+    key text NOT NULL,
+    value text NOT NULL,
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (source, key)
 );
