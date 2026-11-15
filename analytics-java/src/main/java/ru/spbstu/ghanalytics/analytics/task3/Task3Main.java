@@ -22,6 +22,7 @@ public final class Task3Main {
         Table data;
         Table noPopulation;
         try (Connection conn = db.open()) {
+            Sql.requireWorldBank(conn);
             data = Sql.table(conn, "task3/per_capita");
             noPopulation = Sql.table(conn, "task3/no_population");
         }

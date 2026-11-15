@@ -9,6 +9,7 @@ import tech.tablesaw.api.Table;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 
 /**
@@ -22,6 +23,12 @@ public final class PerCapita {
      * (or VPN exits) give per-capita values that say nothing about the country.
      */
     public static final long MIN_POPULATION = 1_000_000;
+
+    /**
+     * Economies whose developer count mostly reflects IP geolocation (VPN exits, regional offices of global
+     * companies): 435 and 318 per 1000 inhabitants in 2025. Kept in the per-country tables, left out of regions.
+     */
+    public static final Set<String> IP_INFLATED = Set.of("HK", "SG");
 
     private PerCapita() {
     }
@@ -77,6 +84,7 @@ public final class PerCapita {
     /**
      * Developers per 1000 by World Bank region and year: sum of developers over sum of population of the
      * countries that have both, so large countries weigh more (unlike an average of country values).
+     * {@link #IP_INFLATED} economies and economies without a World Bank region are left out.
      */
     public static Table regions(Table data) {
         record Key(String region, int year) {
@@ -84,26 +92,30 @@ public final class PerCapita {
         Map<Key, long[]> sums = new TreeMap<>((a, b) -> a.region().equals(b.region())
                 ? Integer.compare(a.year(), b.year()) : a.region().compareTo(b.region()));
         for (Row row : data) {
-            long[] s = sums.computeIfAbsent(new Key(row.getString("region"), row.getInt("year")), k -> new long[3]);
+            String region = row.getString("region");
+            if (region.isEmpty() || IP_INFLATED.contains(row.getString("country_code"))) {
+                continue;
+            }
+            long[] s = sums.computeIfAbsent(new Key(region, row.getInt("year")), k -> new long[3]);
             s[0]++;
             s[1] += row.getLong("developers");
             s[2] += row.getLong("population");
         }
 
-        StringColumn region = StringColumn.create("region");
+        StringColumn regionColumn = StringColumn.create("region");
         IntColumn year = IntColumn.create("year");
         IntColumn countries = IntColumn.create("countries");
         LongColumn developers = LongColumn.create("developers");
         LongColumn population = LongColumn.create("population");
         DoubleColumn perThousand = DoubleColumn.create("developers_per_1000");
         sums.forEach((key, s) -> {
-            region.append(key.region());
+            regionColumn.append(key.region());
             year.append(key.year());
             countries.append((int) s[0]);
             developers.append(s[1]);
             population.append(s[2]);
             perThousand.append(1000.0 * s[1] / s[2]);
         });
-        return Table.create("regions", region, year, countries, developers, population, perThousand);
+        return Table.create("regions", regionColumn, year, countries, developers, population, perThousand);
     }
 }
