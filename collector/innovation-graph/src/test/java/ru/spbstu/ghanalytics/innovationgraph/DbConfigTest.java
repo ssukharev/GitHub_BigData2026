@@ -34,6 +34,23 @@ class DbConfigTest {
     }
 
     @Test
+    void readsDotEnvLikeDockerCompose() {
+        Map<String, String> vars = DbConfig.parseDotEnv("""
+                export POSTGRES_HOST=localhost
+                POSTGRES_USER=gha   # local user
+                POSTGRES_PASSWORD="se #cret" # quoted, the comment is outside
+                POSTGRES_DB='ghanalytics'
+                TOKEN=ab#cd
+                """);
+
+        assertEquals("localhost", vars.get("POSTGRES_HOST"));
+        assertEquals("gha", vars.get("POSTGRES_USER"));
+        assertEquals("se #cret", vars.get("POSTGRES_PASSWORD"));
+        assertEquals("ghanalytics", vars.get("POSTGRES_DB"));
+        assertEquals("ab#cd", vars.get("TOKEN"), "a # without whitespace before it is part of the value");
+    }
+
+    @Test
     void findsDotEnvInParentDirectory(@TempDir Path root) throws IOException {
         Files.writeString(root.resolve(".env"), "POSTGRES_USER=gha\n");
         Path module = Files.createDirectories(root.resolve("collector/innovation-graph"));

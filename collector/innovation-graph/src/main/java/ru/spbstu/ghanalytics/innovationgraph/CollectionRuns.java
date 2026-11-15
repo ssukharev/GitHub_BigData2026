@@ -41,7 +41,19 @@ final class CollectionRuns {
         }
     }
 
-    static void fail(Connection conn, long id, Throwable error) throws SQLException {
+    /**
+     * Marks the run failed without hiding why: if the bookkeeping update fails too (often the same database
+     * outage), that error is attached to {@code error} as suppressed instead of replacing it.
+     */
+    static void recordFailure(Connection conn, long id, Throwable error) {
+        try {
+            fail(conn, id, error);
+        } catch (SQLException | RuntimeException bookkeeping) {
+            error.addSuppressed(bookkeeping);
+        }
+    }
+
+    private static void fail(Connection conn, long id, Throwable error) throws SQLException {
         try (PreparedStatement st = conn.prepareStatement("""
                 UPDATE core.collection_runs
                 SET status = 'failed', finished_at = now(), error = ?
