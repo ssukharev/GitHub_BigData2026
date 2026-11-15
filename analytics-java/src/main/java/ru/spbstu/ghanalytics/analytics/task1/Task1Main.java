@@ -13,7 +13,10 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Task 1 tables, written as CSV to {@code out}. Started from {@link ru.spbstu.ghanalytics.analytics.Main}. */
+/**
+ * Task 1 tables, written as CSV to {@code out}, and figures (PNG) to {@code figures}.
+ * Started from {@link ru.spbstu.ghanalytics.analytics.Main}.
+ */
 public final class Task1Main {
 
     /** ChatGPT came out on 2022-11-30: 2023Q1 is the first full quarter after it. */
@@ -24,7 +27,7 @@ public final class Task1Main {
     private Task1Main() {
     }
 
-    public static void run(DbConfig db, Path out) throws SQLException, IOException {
+    public static void run(DbConfig db, Path out, Path figures) throws SQLException, IOException {
         Table activity;
         Table byQuarter;
         Table byCountry;
@@ -59,6 +62,7 @@ public final class Task1Main {
         byCountry.write().csv(out.resolve("ai_topics_by_country_" + last + ".csv").toFile());
         regressions.write().csv(out.resolve("event_regressions.csv").toFile());
         topicGroups().write().csv(out.resolve("ai_topic_groups.csv").toFile());
+        List<Path> charts = Task1Charts.write(activity, byQuarter, byCountry, last, figures);
 
         System.out.printf("Task 1: %s..%s, %d quarters; CSV written to %s%n",
                 first, last, activity.rowCount(), out.toAbsolutePath());
@@ -68,6 +72,7 @@ public final class Task1Main {
                 "general_ai_share_pct", "llm_share_pct", "agents_share_pct").print());
         System.out.println(byCountry.first(10).print());
         System.out.println(regressions.print());
+        charts.forEach(c -> System.out.println("figure: " + c.toAbsolutePath().normalize()));
     }
 
     private static Table topicGroups() {
