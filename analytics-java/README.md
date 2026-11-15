@@ -15,6 +15,22 @@ mvn -q compile exec:java -Dexec.args=task1                # только зад�
 
 Подключение к БД — из `.env` в корне репозитория, как у сборщиков. SQL-запросы лежат в [`src/main/resources/sql`](src/main/resources/sql).
 
+## Графики для статьи (`docs/figures/`)
+
+Строятся той же командой (XChart, PNG 200 dpi). У каждого графика есть таблица-двойник в `results/` — по ней можно прочитать любое значение.
+
+| Файл | Что показывает | Таблица |
+|---|---|---|
+| [`task1_ai_topic_share.png`](../docs/figures/task1_ai_topic_share.png) | доля ИИ-топиков по группам, 2020Q1–2026Q2, с отметками ChatGPT и ИИ-агентов | `task1/ai_topics_by_quarter.csv` |
+| [`task1_pushes_per_developer.png`](../docs/figures/task1_pushes_per_developer.png) | пушей на разработчика за квартал, с теми же отметками | `task1/activity_by_quarter.csv` |
+| [`task1_developers_net_change.png`](../docs/figures/task1_developers_net_change.png) | прирост числа разработчиков за квартал, млн (чистый прирост, не регистрации) | `task1/activity_by_quarter.csv` |
+| [`task1_ai_share_by_country.png`](../docs/figures/task1_ai_share_by_country.png) | доля ИИ-топиков по странам за последний квартал, Россия выделена | `task1/ai_topics_by_country_2026Q2.csv` |
+| [`task3_top20.png`](../docs/figures/task3_top20.png) | топ-20 стран по разработчикам на 1000 жителей, 2025, без Гонконга и Сингапура (435 и 318 — завышены из-за определения страны по IP; рядом с ними остальные страны сливаются) | `task3/ranking_2025.csv` |
+| [`task3_regions.png`](../docs/figures/task3_regions.png) | регионы World Bank, 2020–2025, без Гонконга и Сингапура | `task3/regions.csv` |
+| [`task3_countries.png`](../docs/figures/task3_countries.png) | крупные страны (США, Германия, Россия, Бразилия, Индия, Китай, Нигерия), 2020–2025 | `task3/per_capita.csv` |
+
+Цвета — проверенная категориальная палитра в фиксированном порядке ([`Charts`](src/main/java/ru/spbstu/ghanalytics/analytics/Charts.java)): соседние линии различимы и при нарушениях цветового зрения. Желтый, розовый и бирюзовый слабо контрастируют с фоном, поэтому на графике долей ИИ-топиков у концов линий подписаны значения, а у всех графиков есть легенда и таблица. Ось времени заканчивается на последнем квартале данных; события (ChatGPT, ИИ-агенты) и порог для стран берутся из тех же констант, что и расчёты.
+
 ## Задача 1: влияние ИИ на работу на GitHub
 
 Первый шаг — на данных Innovation Graph (2020Q1–2026Q2, все страны без агрегата EU). Данные GH Archive по событиям добавятся, когда появится их сборщик.

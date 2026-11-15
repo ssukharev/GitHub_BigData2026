@@ -16,6 +16,7 @@
         <postgresql.version>42.7.14</postgresql.version>
         <tablesaw.version>0.44.4</tablesaw.version>
         <commons-math.version>3.6.1</commons-math.version>
+        <xchart.version>3.8.8</xchart.version>
         <junit.version>5.10.0</junit.version>
         <testcontainers.version>2.0.5</testcontainers.version>
         <!-- same major version as the flyway/flyway:11 image in docker-compose.yml -->
@@ -38,6 +39,11 @@
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-math3</artifactId>
             <version>${commons-math.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.knowm.xchart</groupId>
+            <artifactId>xchart</artifactId>
+            <version>${xchart.version}</version>
         </dependency>
 
         <dependency>
