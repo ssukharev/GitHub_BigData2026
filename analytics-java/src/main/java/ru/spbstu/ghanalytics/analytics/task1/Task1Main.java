@@ -67,7 +67,7 @@ public final class Task1Main {
         byCountry.write().csv(out.resolve("ai_topics_by_country_" + countryQuarter + ".csv").toFile());
         regressions.write().csv(out.resolve("event_regressions.csv").toFile());
         topicGroups().write().csv(out.resolve("ai_topic_groups.csv").toFile());
-        List<Path> charts = Task1Charts.write(activity, byQuarter, byCountry, last, figures);
+        List<Path> charts = Task1Charts.write(activity, byQuarter, byCountry, countryQuarter, figures);
 
         System.out.printf("Task 1: %s..%s, %d quarters; CSV written to %s%n",
                 first, last, activity.rowCount(), out.toAbsolutePath());

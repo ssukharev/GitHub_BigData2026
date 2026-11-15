@@ -146,17 +146,6 @@ public final class Charts {
         return COUNTRY_NAMES.getOrDefault(code, fallback);
     }
 
-    /**
-     * Year ticks only up to {@code lastYear}: the axis keeps room for end labels but shows no empty future year.
-     * XChart thins ticks until all labels differ, so ticks past {@code lastYear} get distinct blank labels
-     * (a shared empty label makes it loop forever).
-     */
-    public static void yearTicks(XYChart chart, int lastYear) {
-        chart.setCustomXAxisTickLabelsFormatter(x -> x > lastYear + 0.5
-                ? " ".repeat((int) Math.round((x - lastYear) * 4))
-                : String.valueOf(Math.round(x)));
-    }
-
     private static void style(AxesChartStyler s) {
         s.setChartBackgroundColor(SURFACE);
         s.setPlotBackgroundColor(SURFACE);

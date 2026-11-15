@@ -14,13 +14,10 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
+import java.util.TreeSet;
 
 /** Article figures of task 3, from the tables built by {@link Task3Main}. */
 final class Task3Charts {
-
-    /** Countries whose value mostly reflects IP geolocation (VPN exits, regional offices), see README. */
-    static final Set<String> IP_INFLATED = Set.of("HK", "SG");
 
     private static final Map<String, String> REGIONS = new LinkedHashMap<>();
 
@@ -68,7 +65,7 @@ final class Task3Charts {
             if (names.size() == n) {
                 break;
             }
-            if (!IP_INFLATED.contains(row.getString("country_code"))) {
+            if (!PerCapita.IP_INFLATED.contains(row.getString("country_code"))) {
                 names.add(Charts.countryName(row.getString("country_code"), row.getString("name")));
                 values.add(row.getDouble("developers_per_1000"));
             }
@@ -81,10 +78,25 @@ final class Task3Charts {
         return chart;
     }
 
+    /**
+     * Known regions keep their fixed color slot; a region the World Bank renamed or added is still drawn, under
+     * its English name in the next free slot, and reported, so a line never silently disappears.
+     */
     private static XYChart regions(Table regions) {
-        XYChart chart = Charts.lines("Разработчики GitHub на 1000 жителей по регионам", "", "разработчиков на 1000 жителей");
+        XYChart chart = Charts.lines("Разработчики GitHub на 1000 жителей по регионам (без Гонконга и Сингапура)",
+                "", "разработчиков на 1000 жителей");
+        Map<String, String> names = new LinkedHashMap<>(REGIONS);
+        for (String region : new TreeSet<>(regions.stringColumn("region").asSet())) {
+            if (!names.containsKey(region)) {
+                System.err.println("Task 3 chart: World Bank region '" + region + "' has no Russian name in Task3Charts");
+                names.put(region, region);
+            }
+        }
+        if (names.size() > Charts.SERIES.length) {
+            throw new IllegalStateException(names.size() + " regions, only " + Charts.SERIES.length + " colors");
+        }
         int slot = 0;
-        for (Map.Entry<String, String> region : REGIONS.entrySet()) {
+        for (Map.Entry<String, String> region : names.entrySet()) {
             Table r = regions.where(regions.stringColumn("region").isEqualTo(region.getKey())).sortAscendingOn("year");
             if (!r.isEmpty()) {
                 Charts.line(chart, region.getValue(), years(r), r.doubleColumn("developers_per_1000").asDoubleArray(), slot);
