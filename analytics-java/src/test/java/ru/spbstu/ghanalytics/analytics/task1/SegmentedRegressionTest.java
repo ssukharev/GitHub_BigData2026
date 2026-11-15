@@ -41,6 +41,47 @@ class SegmentedRegressionTest {
         assertTrue(fit.pSlope() > 0.05, "p_slope " + fit.pSlope());
     }
 
+    /** y = t + residual pattern; returns the design matrix with intercept and the residuals of a straight-line fit. */
+    private static double[] pattern(int n, int period) {
+        double[] e = new double[n];
+        for (int t = 0; t < n; t++) {
+            e[t] = (t / period) % 2 == 0 ? 1 : -1;
+        }
+        return e;
+    }
+
+    private static double[][] design(int n) {
+        double[][] x = new double[n][2];
+        for (int t = 0; t < n; t++) {
+            x[t] = new double[]{1, t};
+        }
+        return x;
+    }
+
+    @Test
+    void neweyWestWidensErrorsForPositiveAutocorrelation() {
+        // runs of three equal residuals: strong positive autocorrelation
+        double[] e = pattern(24, 3);
+
+        double[] white = SegmentedRegression.neweyWestStandardErrors(design(24), e, 0);
+        double[] hac = SegmentedRegression.neweyWestStandardErrors(design(24), e, 2);
+
+        assertTrue(hac[1] > white[1], "HAC " + hac[1] + " vs White " + white[1]);
+        assertTrue(SegmentedRegression.durbinWatson(e) < 1.5, "DW " + SegmentedRegression.durbinWatson(e));
+    }
+
+    @Test
+    void durbinWatsonOfAlternatingResidualsIsAboveTwo() {
+        assertTrue(SegmentedRegression.durbinWatson(pattern(20, 1)) > 3);
+    }
+
+    @Test
+    void lagsFollowTheRuleOfThumb() {
+        assertEquals(2, SegmentedRegression.lags(14));
+        assertEquals(2, SegmentedRegression.lags(26));
+        assertEquals(4, SegmentedRegression.lags(100));
+    }
+
     @Test
     void rejectsTooFewPoints() {
         assertThrows(IllegalArgumentException.class, () -> SegmentedRegression.fit(new double[]{1, 2, 3, 4, 5, 6}, 1));

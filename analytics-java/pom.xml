@@ -17,6 +17,9 @@
         <tablesaw.version>0.44.4</tablesaw.version>
         <commons-math.version>3.6.1</commons-math.version>
         <junit.version>5.10.0</junit.version>
+        <testcontainers.version>2.0.5</testcontainers.version>
+        <!-- same major version as the flyway/flyway:11 image in docker-compose.yml -->
+        <flyway.version>11.20.3</flyway.version>
         <exec.mainClass>ru.spbstu.ghanalytics.analytics.Main</exec.mainClass>
     </properties>
 
@@ -41,6 +44,24 @@
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
             <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-postgresql</artifactId>
+            <version>${testcontainers.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+            <version>${flyway.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-simple</artifactId>
+            <version>2.0.20</version>
             <scope>test</scope>
         </dependency>
     </dependencies>

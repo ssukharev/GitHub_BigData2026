@@ -25,7 +25,14 @@ class AiActivityTest {
     }
 
     @Test
-    void activityAddsRatiosAndNewDevelopers() {
+    void decimalYearOfQuarter() {
+        assertEquals(2023.0, AiActivity.decimalYear("2023Q1"), 1e-12);
+        assertEquals(2025.25, AiActivity.decimalYear("2025Q2"), 1e-12);
+        assertEquals(2026.75, AiActivity.decimalYear(AiActivity.quarterLabel(2026, 4)), 1e-12);
+    }
+
+    @Test
+    void activityAddsRatiosAndNetChange() {
         Table raw = Table.create("activity_by_quarter",
                 IntColumn.create("year", 2020, 2020),
                 IntColumn.create("quarter", 2, 1),           // unordered on purpose
@@ -38,8 +45,8 @@ class AiActivityTest {
         Table activity = AiActivity.activity(raw);
 
         assertEquals(List.of("2020Q1", "2020Q2"), activity.stringColumn("quarter_label").asList());
-        assertTrue(activity.longColumn("new_developers").isMissing(0));
-        assertEquals(100L, activity.longColumn("new_developers").get(1));
+        assertTrue(activity.longColumn("developers_net_change").isMissing(0));
+        assertEquals(100L, activity.longColumn("developers_net_change").get(1));
         assertEquals(1.5, activity.doubleColumn("pushes_per_developer").get(0), 1e-9);
         assertEquals(2.0, activity.doubleColumn("pushes_per_developer").get(1), 1e-9);  // 1800 / 900
         assertEquals(2.0, activity.doubleColumn("repositories_per_developer").get(1), 1e-9);
