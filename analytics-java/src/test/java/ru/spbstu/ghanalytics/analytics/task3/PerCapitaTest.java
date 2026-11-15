@@ -77,4 +77,16 @@ class PerCapitaTest {
         assertEquals(1000.0 * 14_000 / 1_050_000, south2025.doubleColumn("developers_per_1000").get(0), 1e-9);
         assertEquals(List.of("North", "North", "South", "South"), regions.stringColumn("region").asList());
     }
+
+    @Test
+    void regionsLeaveOutIpInflatedAndUnassignedEconomies() {
+        Table regions = PerCapita.regions(data(
+                new Object[]{"AA", "North", 2025, 40_000L, 2_000_000L},
+                new Object[]{"HK", "North", 2025, 3_000_000L, 7_000_000L},   // IP-inflated
+                new Object[]{"TW", "", 2025, 1_700_000L, 23_000_000L}));     // no World Bank region
+
+        assertEquals(List.of("North"), regions.stringColumn("region").asList());
+        assertEquals(1, regions.intColumn("countries").get(0));
+        assertEquals(20.0, regions.doubleColumn("developers_per_1000").get(0), 1e-9);
+    }
 }

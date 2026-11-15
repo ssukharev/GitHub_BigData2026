@@ -24,6 +24,22 @@ public final class Sql {
         }
     }
 
+    /**
+     * Aggregates (World, EU, ...) are only known as such once collector/worldbank has run; before that the queries
+     * would count them as countries (EU alone is 14% of all developers), so stop instead of producing quietly
+     * wrong numbers.
+     */
+    public static void requireWorldBank(Connection conn) throws SQLException {
+        try (Statement st = conn.createStatement();
+             ResultSet rs = st.executeQuery("SELECT count(*) FROM core.countries WHERE is_aggregate")) {
+            rs.next();
+            if (rs.getLong(1) == 0) {
+                throw new IllegalStateException(
+                        "core.countries has no World Bank aggregates: run collector/worldbank before the analysis");
+            }
+        }
+    }
+
     static String text(String name) {
         try (InputStream in = Sql.class.getResourceAsStream("/sql/" + name + ".sql")) {
             if (in == null) {

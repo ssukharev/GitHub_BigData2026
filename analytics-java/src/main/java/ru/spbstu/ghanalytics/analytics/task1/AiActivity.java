@@ -27,14 +27,23 @@ public final class AiActivity {
         return year + "Q" + quarter;
     }
 
+    /** {@code "2023Q1"} -> 2023.0, {@code "2025Q2"} -> 2025.25: the x position of a quarter on the charts. */
+    public static double decimalYear(String quarterLabel) {
+        int q = quarterLabel.indexOf('Q');
+        return Integer.parseInt(quarterLabel.substring(0, q)) + (Integer.parseInt(quarterLabel.substring(q + 1)) - 1) / 4.0;
+    }
+
     /**
-     * Adds to {@code activity_by_quarter.sql} rows: quarter label, new developers since the previous quarter,
-     * pushes per developer (only countries with published pushes) and repositories per developer.
+     * Adds to {@code activity_by_quarter.sql} rows: quarter label, net change of developers since the previous
+     * quarter, pushes per developer (only countries with published pushes) and repositories per developer.
+     * <p>
+     * Innovation Graph reports the stock of developer accounts at the end of each quarter, so the change is net:
+     * new accounts minus accounts removed, flagged as spam or moved to an unpublished country, not sign-ups.
      */
     public static Table activity(Table raw) {
         Table t = raw.sortAscendingOn("year", "quarter").copy().setName("activity_by_quarter");
         StringColumn label = StringColumn.create("quarter_label");
-        LongColumn newDevelopers = LongColumn.create("new_developers");
+        LongColumn netChange = LongColumn.create("developers_net_change");
         DoubleColumn pushesPerDeveloper = DoubleColumn.create("pushes_per_developer");
         DoubleColumn reposPerDeveloper = DoubleColumn.create("repositories_per_developer");
         long previous = -1;
@@ -42,15 +51,15 @@ public final class AiActivity {
             long developers = row.getLong("developers");
             label.append(quarterLabel(row.getInt("year"), row.getInt("quarter")));
             if (previous < 0) {
-                newDevelopers.appendMissing();
+                netChange.appendMissing();
             } else {
-                newDevelopers.append(developers - previous);
+                netChange.append(developers - previous);
             }
             previous = developers;
             pushesPerDeveloper.append((double) row.getLong("git_pushes") / row.getLong("developers_with_pushes"));
             reposPerDeveloper.append((double) row.getLong("repositories") / developers);
         }
-        return t.insertColumn(0, label).addColumns(newDevelopers, pushesPerDeveloper, reposPerDeveloper);
+        return t.insertColumn(0, label).addColumns(netChange, pushesPerDeveloper, reposPerDeveloper);
     }
 
     /**
@@ -183,6 +192,7 @@ public final class AiActivity {
         DoubleColumn slope = DoubleColumn.create("slope_change");
         DoubleColumn pSlope = DoubleColumn.create("p_slope");
         DoubleColumn r2 = DoubleColumn.create("r_squared");
+        DoubleColumn dw = DoubleColumn.create("durbin_watson");
         for (EventFit f : fits) {
             series.append(f.series());
             event.append(f.event());
@@ -196,8 +206,9 @@ public final class AiActivity {
             slope.append(f.fit().slopeChange());
             pSlope.append(f.fit().pSlope());
             r2.append(f.fit().rSquared());
+            dw.append(f.fit().durbinWatson());
         }
         return Table.create("event_regressions", series, event, window, after, n,
-                slopeBefore, slopeAfter, level, pLevel, slope, pSlope, r2);
+                slopeBefore, slopeAfter, level, pLevel, slope, pSlope, r2, dw);
     }
 }

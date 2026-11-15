@@ -1,4 +1,4 @@
-quarter_label,year,quarter,countries,developers,repositories,git_pushes,developers_with_pushes,new_developers,pushes_per_developer,repositories_per_developer
+quarter_label,year,quarter,countries,developers,repositories,git_pushes,developers_with_pushes,developers_net_change,pushes_per_developer,repositories_per_developer
 2020Q1,2020,1,218,45478340,122435835,80818507,45423054,,1.7792398327069774,2.69217906810143
 2020Q2,2020,2,220,49504193,131344838,97826757,49453502,4025853,1.9781563093347767,2.653206325371267
 2020Q3,2020,3,222,53248431,139783519,90342286,53192301,3744238,1.6984090611158182,2.6251199589336256
