@@ -1,27 +1,16 @@
 package ru.spbstu.ghanalytics.analytics.task3;
 
 import ru.spbstu.ghanalytics.analytics.DbConfig;
+import ru.spbstu.ghanalytics.analytics.Sql;
 import tech.tablesaw.api.Table;
 
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.UncheckedIOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
-import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Statement;
 
-/**
- * Task 3 tables from the database in {@code .env}, written as CSV to {@code results/task3} (or the first argument).
- * <pre>
- * cd analytics-java
- * mvn -q compile exec:java
- * </pre>
- * Needs data loaded by collector/worldbank and collector/innovation-graph.
- */
+/** Task 3 tables, written as CSV to {@code out}. Started from {@link ru.spbstu.ghanalytics.analytics.Main}. */
 public final class Task3Main {
 
     private static final int FIRST_YEAR = 2020;
@@ -29,15 +18,12 @@ public final class Task3Main {
     private Task3Main() {
     }
 
-    public static void main(String[] args) throws Exception {
-        Path out = Path.of(args.length > 0 ? args[0] : "results/task3");
-        DbConfig db = DbConfig.fromEnvironment();
-
+    public static void run(DbConfig db, Path out) throws SQLException, IOException {
         Table data;
         Table noPopulation;
         try (Connection conn = db.open()) {
-            data = query(conn, "per_capita");
-            noPopulation = query(conn, "no_population");
+            data = Sql.table(conn, "task3/per_capita");
+            noPopulation = Sql.table(conn, "task3/no_population");
         }
         if (data.isEmpty()) {
             throw new IllegalStateException("No data: load collector/worldbank and collector/innovation-graph first");
@@ -55,29 +41,12 @@ public final class Task3Main {
         regions.write().csv(out.resolve("regions.csv").toFile());
         noPopulation.write().csv(out.resolve("no_population.csv").toFile());
 
-        System.out.printf("%d country-year rows, %d years; CSV written to %s%n",
+        System.out.printf("Task 3: %d country-year rows, %d years; CSV written to %s%n",
                 data.rowCount(), data.intColumn("year").countUnique(), out.toAbsolutePath());
         System.out.println(ranking.selectColumns("rank", "name", "developers", "population", "developers_per_1000")
                 .first(10).print());
         System.out.println(regions.where(regions.intColumn("year").isEqualTo(lastYear)).sortDescendingOn("developers_per_1000")
                 .selectColumns("region", "countries", "developers_per_1000").print());
         System.out.println(noPopulation.first(5).print());
-    }
-
-    private static Table query(Connection conn, String name) throws SQLException {
-        try (Statement st = conn.createStatement(); ResultSet rs = st.executeQuery(sql(name))) {
-            return Table.read().db(rs, name);
-        }
-    }
-
-    private static String sql(String name) {
-        try (InputStream in = Task3Main.class.getResourceAsStream("/sql/task3/" + name + ".sql")) {
-            if (in == null) {
-                throw new IllegalArgumentException("No SQL " + name);
-            }
-            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
     }
 }
