@@ -36,6 +36,7 @@ public final class Task3Main {
         Table data;
         Table noPopulation;
         try (Connection conn = db.open()) {
+            requireWorldBank(conn);
             data = query(conn, "per_capita");
             noPopulation = query(conn, "no_population");
         }
@@ -62,6 +63,21 @@ public final class Task3Main {
         System.out.println(regions.where(regions.intColumn("year").isEqualTo(lastYear)).sortDescendingOn("developers_per_1000")
                 .selectColumns("region", "countries", "developers_per_1000").print());
         System.out.println(noPopulation.first(5).print());
+    }
+
+    /**
+     * Aggregates (World, EU, ...) are only known as such once collector/worldbank has run; before that the queries
+     * would count them as countries, so stop instead of producing quietly wrong numbers.
+     */
+    private static void requireWorldBank(Connection conn) throws SQLException {
+        try (Statement st = conn.createStatement();
+             ResultSet rs = st.executeQuery("SELECT count(*) FROM core.countries WHERE is_aggregate")) {
+            rs.next();
+            if (rs.getLong(1) == 0) {
+                throw new IllegalStateException(
+                        "core.countries has no World Bank aggregates: run collector/worldbank before the analysis");
+            }
+        }
     }
 
     private static Table query(Connection conn, String name) throws SQLException {
