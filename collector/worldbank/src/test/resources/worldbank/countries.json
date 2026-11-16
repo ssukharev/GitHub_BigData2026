@@ -1,0 +1,178 @@
+[
+ {
+  "page": 1,
+  "pages": 1,
+  "per_page": "400",
+  "total": 6
+ },
+ [
+  {
+   "id": "ABW",
+   "iso2Code": "AW",
+   "name": "Aruba",
+   "region": {
+    "id": "LCN",
+    "iso2code": "ZJ",
+    "value": "Latin America & Caribbean "
+   },
+   "adminregion": {
+    "id": "",
+    "iso2code": "",
+    "value": ""
+   },
+   "incomeLevel": {
+    "id": "HIC",
+    "iso2code": "XD",
+    "value": "High income"
+   },
+   "lendingType": {
+    "id": "LNX",
+    "iso2code": "XX",
+    "value": "Not classified"
+   },
+   "capitalCity": "Oranjestad",
+   "longitude": "-70.0167",
+   "latitude": "12.5167"
+  },
+  {
+   "id": "EUU",
+   "iso2Code": "EU",
+   "name": "European Union",
+   "region": {
+    "id": "NA",
+    "iso2code": "NA",
+    "value": "Aggregates"
+   },
+   "adminregion": {
+    "id": "",
+    "iso2code": "",
+    "value": ""
+   },
+   "incomeLevel": {
+    "id": "NA",
+    "iso2code": "NA",
+    "value": "Aggregates"
+   },
+   "lendingType": {
+    "id": "",
+    "iso2code": "",
+    "value": "Aggregates"
+   },
+   "capitalCity": "",
+   "longitude": "",
+   "latitude": ""
+  },
+  {
+   "id": "INX",
+   "iso2Code": "XY",
+   "name": "Not classified",
+   "region": {
+    "id": "NA",
+    "iso2code": "NA",
+    "value": "Aggregates"
+   },
+   "adminregion": {
+    "id": "",
+    "iso2code": "",
+    "value": ""
+   },
+   "incomeLevel": {
+    "id": "NA",
+    "iso2code": "NA",
+    "value": "Aggregates"
+   },
+   "lendingType": {
+    "id": "",
+    "iso2code": "",
+    "value": "Aggregates"
+   },
+   "capitalCity": "",
+   "longitude": "",
+   "latitude": ""
+  },
+  {
+   "id": "RUS",
+   "iso2Code": "RU",
+   "name": "Russian Federation",
+   "region": {
+    "id": "ECS",
+    "iso2code": "Z7",
+    "value": "Europe & Central Asia"
+   },
+   "adminregion": {
+    "id": "",
+    "iso2code": "",
+    "value": ""
+   },
+   "incomeLevel": {
+    "id": "HIC",
+    "iso2code": "XD",
+    "value": "High income"
+   },
+   "lendingType": {
+    "id": "IBD",
+    "iso2code": "XF",
+    "value": "IBRD"
+   },
+   "capitalCity": "Moscow",
+   "longitude": "37.6176",
+   "latitude": "55.7558"
+  },
+  {
+   "id": "WLD",
+   "iso2Code": "1W",
+   "name": "World",
+   "region": {
+    "id": "NA",
+    "iso2code": "NA",
+    "value": "Aggregates"
+   },
+   "adminregion": {
+    "id": "",
+    "iso2code": "",
+    "value": ""
+   },
+   "incomeLevel": {
+    "id": "NA",
+    "iso2code": "NA",
+    "value": "Aggregates"
+   },
+   "lendingType": {
+    "id": "",
+    "iso2code": "",
+    "value": "Aggregates"
+   },
+   "capitalCity": "",
+   "longitude": "",
+   "latitude": ""
+  },
+  {
+   "id": "XKX",
+   "iso2Code": "XK",
+   "name": "Kosovo",
+   "region": {
+    "id": "ECS",
+    "iso2code": "Z7",
+    "value": "Europe & Central Asia"
+   },
+   "adminregion": {
+    "id": "ECA",
+    "iso2code": "7E",
+    "value": "Europe & Central Asia (excluding high income)"
+   },
+   "incomeLevel": {
+    "id": "UMC",
+    "iso2code": "XT",
+    "value": "Upper middle income"
+   },
+   "lendingType": {
+    "id": "IDX",
+    "iso2code": "XI",
+    "value": "IDA"
+   },
+   "capitalCity": "Pristina",
+   "longitude": "20.926",
+   "latitude": "42.565"
+  }
+ ]
+]
