@@ -1,6 +1,6 @@
 -- История звёзд по дням (источник: GET /repos/{owner}/{repo}/stargazers/history).
--- API отдаёт недели, внутри недели массив days (с воскресенья); сборщик раскладывает его по дням.
--- Границы дней не обязательно совпадают с UTC (см. документацию GitHub).
+-- API отдаёт недели, начинающиеся в воскресенье 00:00 UTC; days[i] - i-й день недели (0 = воскресенье),
+-- поэтому day = UTC-дата начала недели + i. Сборщик раскладывает недели по дням.
 CREATE TABLE core.star_history_daily (
     repo_id bigint NOT NULL REFERENCES core.repos(id) ON DELETE CASCADE,
     day date NOT NULL,
