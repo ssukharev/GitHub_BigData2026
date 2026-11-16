@@ -1,5 +1,7 @@
 package ru.spbstu.ghanalytics.github;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import ru.spbstu.ghanalytics.core.http.HttpStatusException;
@@ -41,6 +43,7 @@ public class GitHubRestClient {
     /** Supported until 2028-03-10; the newer 2026-03-10 version brings nothing we need. */
     private static final String API_VERSION = "2022-11-28";
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(30);
+    private static final Logger log = LoggerFactory.getLogger(GitHubRestClient.class);
 
     private final HttpClient httpClient;
     private final RetryPolicy retryPolicy;
@@ -71,7 +74,7 @@ public class GitHubRestClient {
         return send(path, accept, HttpResponse.BodyHandlers.ofString(), body -> body);
     }
 
-    /** The same with a byte body, for content that is not necessarily UTF-8. */
+    /** The same with a byte body: READMEs are decoded by {@link #decode(byte[])}, not as UTF-8 blindly. */
     public HttpResponse<byte[]> getBytes(String path, String accept) {
         return send(path, accept, HttpResponse.BodyHandlers.ofByteArray(),
                 body -> body == null ? null : new String(body, StandardCharsets.UTF_8));
@@ -114,5 +117,43 @@ public class GitHubRestClient {
             HttpStatusException.throwIfError(status, headers, text);   // 5xx: repeated, any other status: not
             throw new IllegalStateException("throwIfError returned for HTTP " + status);   // never: it throws for every non-2xx
         });
+    }
+
+    /**
+     * The README of a repository in any case and extension, from the root, {@code .github/} or {@code docs/}.
+     *
+     * @param fullName {@code owner/name}
+     * @return the text, or empty if the repository has no README (404)
+     */
+    public Optional<String> readme(String fullName) {
+        HttpResponse<byte[]> response = getBytes("/repos/" + fullName + "/readme", ACCEPT_RAW);
+        int status = response.statusCode();
+        if (status == 404) {
+            return Optional.empty();
+        }
+        if (status != 200) {
+            throw new HttpStatusException(status, "README of " + fullName + ": unexpected HTTP " + status);
+        }
+        String text = decode(response.body());
+        log.debug("README of {}: {} characters", fullName, text.length());
+        return Optional.of(text);
+    }
+
+    /**
+     * README bytes to text: a byte order mark FF FE or FE FF means UTF-16, anything else is read
+     * as UTF-8; a leading BOM is dropped (UTF-8 files have one too); characters with code 0 are
+     * removed, since PostgreSQL text cannot hold them and one would fail the whole page.
+     */
+    static String decode(byte[] body) {
+        if (body == null || body.length == 0) {
+            return "";
+        }
+        boolean utf16 = body.length >= 2
+                && ((body[0] == (byte) 0xFF && body[1] == (byte) 0xFE) || (body[0] == (byte) 0xFE && body[1] == (byte) 0xFF));
+        String text = new String(body, utf16 ? StandardCharsets.UTF_16 : StandardCharsets.UTF_8);   // UTF_16 reads and drops the BOM
+        if (text.startsWith("﻿")) {
+            text = text.substring(1);   // a UTF-8 BOM stays as the character U+FEFF
+        }
+        return text.indexOf('\0') >= 0 ? text.replace("\0", "") : text;
     }
 }
