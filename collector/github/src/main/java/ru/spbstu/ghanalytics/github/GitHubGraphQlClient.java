@@ -65,7 +65,8 @@ public class GitHubGraphQlClient {
     static final String USER_AGENT = "github-analytics-collector";
 
     private static final Logger log = LoggerFactory.getLogger(GitHubGraphQlClient.class);
-    private static final Pattern OPERATION = Pattern.compile("\\b(?:query|mutation)\\s+(\\w+)");
+    private static final Pattern COMMENT = Pattern.compile("#[^\\r\\n]*");
+    private static final Pattern OPERATION = Pattern.compile("\\b(?:query|mutation|subscription)\\s+(\\w+)");
 
     private final HttpClient httpClient;
     private final RetryPolicy retryPolicy;
@@ -208,7 +209,7 @@ public class GitHubGraphQlClient {
 
     /** {@code "query SearchRepos($q: String!) {...}"} gives {@code SearchRepos}; a query without a name gives {@code anonymous}. */
     static String operationName(String query) {
-        Matcher m = OPERATION.matcher(query);
+        Matcher m = OPERATION.matcher(COMMENT.matcher(query).replaceAll(""));   // "# a query off ..." is not an operation
         return m.find() ? m.group(1) : "anonymous";
     }
 

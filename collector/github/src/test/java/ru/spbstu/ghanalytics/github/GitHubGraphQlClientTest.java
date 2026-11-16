@@ -277,6 +277,9 @@ class GitHubGraphQlClientTest {
                 .isEqualTo("SearchRepos");
         assertThat(GitHubGraphQlClient.operationName("# comment\nquery   Ping { viewer { login } }")).isEqualTo("Ping");
         assertThat(GitHubGraphQlClient.operationName("mutation AddStar { x }")).isEqualTo("AddStar");
+        assertThat(GitHubGraphQlClient.operationName("# GitHub cuts a query off after 10 s\nquery SearchRepos { x }"))
+                .as("words in comments are not operations").isEqualTo("SearchRepos");
+        assertThat(GitHubGraphQlClient.operationName("# a query here\n{ viewer { login } }")).isEqualTo("anonymous");
         assertThat(GitHubGraphQlClient.operationName("query { viewer { login } }")).isEqualTo("anonymous");
         assertThat(GitHubGraphQlClient.operationName("{ viewer { login } }")).isEqualTo("anonymous");
     }
