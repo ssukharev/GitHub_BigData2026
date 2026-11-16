@@ -8,6 +8,7 @@ import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Component;
 import ru.spbstu.ghanalytics.core.CollectionContext;
 import ru.spbstu.ghanalytics.core.Collector;
+import ru.spbstu.ghanalytics.core.http.HttpStatusException;
 import ru.spbstu.ghanalytics.core.http.RetryableHttpException;
 import ru.spbstu.ghanalytics.core.run.CollectionRunService;
 import ru.spbstu.ghanalytics.core.run.RunStats;
@@ -23,10 +24,12 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * {@code github-repos} v0: repositories found by GitHub search for the period and minimal stars,
- * page by page with a cursor, into {@code core.repos} and {@code core.repo_tree_entries}.
+ * page by page with a cursor, into {@code core.repos} and {@code core.repo_tree_entries}, and
+ * their READMEs by REST into {@code core.readmes}.
  * <p>
  * Not yet here: the 1000-results limit of search (one query returns at most 1000 repositories,
  * whatever {@code repositoryCount} says), a random sample and checkpoints for {@code --resume}.
@@ -43,10 +46,13 @@ public class RepoCollector implements Collector {
     static final int PAGE_SIZE = 10;
     static final int MIN_PAGE_SIZE = 3;
     static final String QUERY_RESOURCE = "graphql/search-repos.graphql";
+    /** {@link RunStats} key: READMEs skipped after an error; they are fetched again by a later run. */
+    public static final String README_ERRORS = "readme_errors";
 
     private static final Logger log = LoggerFactory.getLogger(RepoCollector.class);
 
     private final GitHubGraphQlClient client;
+    private final GitHubRestClient rest;
     private final RepoMapper mapper;
     private final RepoRepository repository;
     private final CollectionRunService runs;
@@ -55,9 +61,10 @@ public class RepoCollector implements Collector {
     private final Clock clock;
     private final String searchQuery;
 
-    public RepoCollector(GitHubGraphQlClient client, RepoMapper mapper, RepoRepository repository,
+    public RepoCollector(GitHubGraphQlClient client, GitHubRestClient rest, RepoMapper mapper, RepoRepository repository,
                          CollectionRunService runs, RunStats stats, ObjectMapper objectMapper, Clock clock) {
         this.client = client;
+        this.rest = rest;
         this.mapper = mapper;
         this.repository = repository;
         this.runs = runs;
@@ -126,7 +133,10 @@ public class RepoCollector implements Collector {
         }
     }
 
-    /** Writes one page: repositories first (foreign keys of the other tables point at them), then file trees. */
+    /**
+     * Writes one page: repositories first (foreign keys of the other tables point at them),
+     * then file trees, then READMEs, one request each.
+     */
     private int savePage(JsonNode nodes, OffsetDateTime collectedAt) {
         Map<Long, RepoRow> rows = new LinkedHashMap<>();   // by id: search may repeat a repository
         List<RepoTreeEntryRow> entries = new ArrayList<>();
@@ -143,7 +153,34 @@ public class RepoCollector implements Collector {
         }
         repository.upsertRepos(List.copyOf(rows.values()));
         repository.replaceTreeEntries(rows.keySet(), entries);
+
+        List<ReadmeRow> readmes = new ArrayList<>();
+        for (RepoRow row : rows.values()) {
+            readme(row).ifPresent(readmes::add);
+        }
+        repository.upsertReadmes(readmes);
         return rows.size();
+    }
+
+    /**
+     * README of one repository: text, or null text for "no README". An error after all retries
+     * is logged and skipped (the repository simply gets no row in {@code core.readmes} and is
+     * picked up by a later run); a rejected token or an interrupt stops the run.
+     */
+    private Optional<ReadmeRow> readme(RepoRow row) {
+        if (Boolean.TRUE.equals(row.isEmpty())) {
+            return Optional.of(new ReadmeRow(row.id(), null));   // no commits, no files: no request needed
+        }
+        try {
+            return Optional.of(new ReadmeRow(row.id(), rest.readme(row.fullName()).orElse(null)));
+        } catch (RuntimeException e) {
+            if (Thread.currentThread().isInterrupted() || (e instanceof HttpStatusException h && h.statusCode() == 401)) {
+                throw e;
+            }
+            stats.inc(README_ERRORS);
+            log.warn("README of {} skipped: {}", row.fullName(), e.toString());
+            return Optional.empty();
+        }
     }
 
     /** 502 and 504 after all retries: the query did not fit in 10 seconds, the same page size will not help. */

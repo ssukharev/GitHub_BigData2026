@@ -23,6 +23,7 @@ import java.util.Deque;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -34,6 +35,7 @@ import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -47,6 +49,7 @@ class RepoCollectorTest {
 
     private final ObjectMapper json = JsonMapper.builder().findAndAddModules().build();
     private final GitHubGraphQlClient client = mock(GitHubGraphQlClient.class);
+    private final GitHubRestClient rest = mock(GitHubRestClient.class);   // unstubbed: Optional.empty(), "no README"
     private final RepoRepository repository = mock(RepoRepository.class);
     private final CollectionRunService runs = mock(CollectionRunService.class);
     private final RunStats stats = new RunStats();
@@ -72,7 +75,7 @@ class RepoCollectorTest {
             upserted.add(rows);
             return rows.size();
         });
-        collector = new RepoCollector(client, new RepoMapper(), repository, runs, stats, json, clock);
+        collector = new RepoCollector(client, rest, new RepoMapper(), repository, runs, stats, json, clock);
     }
 
     @Test
@@ -198,6 +201,67 @@ class RepoCollectorTest {
 
         assertThat(upserted).extracting(List::size).containsExactly(2);
         verify(runs).finish(eq(7L), eq(2L), any());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void fetchesTheReadmeOfEveryRepositoryAfterTheRepositoriesAreWritten() {
+        when(rest.readme("owner/repo1")).thenReturn(Optional.of("# One"));
+        answers.add(() -> page(2, false, null));
+
+        collector.collect(new CollectionContext(FROM, TO, 10, 0, false));
+
+        var readmes = ArgumentCaptor.forClass(List.class);
+        var order = inOrder(repository, rest);
+        order.verify(repository).upsertRepos(anyList());
+        order.verify(rest).readme("owner/repo1");
+        order.verify(rest).readme("owner/repo2");
+        order.verify(repository).upsertReadmes(readmes.capture());
+        assertThat((List<ReadmeRow>) readmes.getValue())
+                .containsExactly(new ReadmeRow(1, "# One"), new ReadmeRow(2, null));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void aFailedReadmeIsSkippedAndCounted() {
+        when(rest.readme("owner/repo1")).thenThrow(new RetryableHttpException(502, "HTTP 502", null));
+        when(rest.readme("owner/repo2")).thenReturn(Optional.of("# Two"));
+        answers.add(() -> page(2, false, null));
+
+        collector.collect(new CollectionContext(FROM, TO, 10, 0, false));
+
+        var readmes = ArgumentCaptor.forClass(List.class);
+        verify(repository).upsertReadmes(readmes.capture());
+        assertThat((List<ReadmeRow>) readmes.getValue()).containsExactly(new ReadmeRow(2, "# Two"));
+        assertThat(stats.snapshot()).containsEntry(RepoCollector.README_ERRORS, 1L);
+        verify(runs).finish(eq(7L), eq(2L), any());
+    }
+
+    @Test
+    void aRejectedTokenStopsTheRun() {
+        when(rest.readme("owner/repo1")).thenThrow(new HttpStatusException(401, "GitHub rejected token ****0001"));
+        answers.add(() -> page(2, false, null));
+
+        assertThatThrownBy(() -> collector.collect(new CollectionContext(FROM, TO, 10, 0, false)))
+                .isInstanceOf(HttpStatusException.class);
+        verify(runs).fail(eq(7L), contains("rejected token"));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void anEmptyRepositoryNeedsNoReadmeRequest() {
+        answers.add(() -> {
+            ObjectNode data = page(1, false, null);
+            ((ObjectNode) data.path("search").path("nodes").get(0)).put("isEmpty", true);
+            return data;
+        });
+
+        collector.collect(new CollectionContext(FROM, TO, 10, 0, false));
+
+        verify(rest, never()).readme(anyString());
+        var readmes = ArgumentCaptor.forClass(List.class);
+        verify(repository).upsertReadmes(readmes.capture());
+        assertThat((List<ReadmeRow>) readmes.getValue()).containsExactly(new ReadmeRow(1, null));
     }
 
     /** A search page with {@code n} minimal repository nodes. */
