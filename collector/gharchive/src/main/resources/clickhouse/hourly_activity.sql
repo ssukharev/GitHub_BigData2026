@@ -2,7 +2,7 @@
 -- Parameters: {from:DateTime} inclusive, {to:DateTime} exclusive (midnight of the next day).
 -- The event_class placeholder in WHERE is replaced by Java with event_type = 'PushEvent' or event_type != 'PushEvent'
 -- (a value of an enum, never user input): a filter on event_type uses the sorting key of the table.
--- is_bot:  login ends with [bot] (GitHub Apps only; bots and AI agents on normal accounts count as people)
+-- is_bot:  login ends with [bot] (GitHub Apps only; bots and coding agents on normal accounts count as people)
 -- actors:  uniq(actor_login), approximate; do not sum over hours (one person is active in many hours)
 -- commits: PushEvent only, sum(least(push_distinct_size, 100)); the cap of 100 is a proposal to agree on
 --          with the team. NULL for the other types and from 2025-10-01 (GitHub removed the push size
