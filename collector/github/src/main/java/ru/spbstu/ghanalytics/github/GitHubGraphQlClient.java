@@ -6,7 +6,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
-import ru.spbstu.ghanalytics.core.http.HttpStatusException;
 import ru.spbstu.ghanalytics.core.http.RetryPolicy;
 import ru.spbstu.ghanalytics.core.http.RetryableHttpException;
 import ru.spbstu.ghanalytics.core.run.RunStats;
@@ -20,7 +19,6 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.LinkedHashMap;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -62,7 +60,6 @@ public class GitHubGraphQlClient {
 
     /** GitHub itself gives up after 10 s; the rest is a margin for a slow network. */
     static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(60);
-    static final String USER_AGENT = "github-analytics-collector";
 
     private static final Logger log = LoggerFactory.getLogger(GitHubGraphQlClient.class);
     private static final Pattern COMMENT = Pattern.compile("#[^\\r\\n]*");
@@ -117,7 +114,7 @@ public class GitHubGraphQlClient {
                 .header("Authorization", "Bearer " + token)
                 .header("Content-Type", "application/json")
                 .header("Accept", "application/json")
-                .header("User-Agent", USER_AGENT)
+                .header("User-Agent", GitHubHttp.USER_AGENT)
                 .POST(HttpRequest.BodyPublishers.ofString(body))
                 .build();
 
@@ -129,7 +126,7 @@ public class GitHubGraphQlClient {
 
         // before the status check: a rate limit answer tells the pool when the window resets
         RateLimitInfo.fromHeaders(headers).ifPresent(info -> guard.record(token, info));
-        countStatus(stats, status);
+        GitHubHttp.countStatus(stats, status);
         Optional<Duration> retryAfter = RetryableHttpException.parseRetryAfter(headers);
 
         if (status == 401) {
@@ -137,17 +134,17 @@ public class GitHubGraphQlClient {
                     + " (HTTP 401): check COLLECTOR_GITHUB_TOKENS", null);
         }
         if (status == 403 || status == 429) {
-            if (status == 429 || isRateLimitAnswer(headers, text, retryAfter)) {
-                throw rateLimited(status, headers, retryAfter, operationName + ": HTTP " + status);
+            if (status == 429 || GitHubHttp.isRateLimitAnswer(headers, text, retryAfter)) {
+                throw GitHubHttp.rateLimited(guard, status, headers, retryAfter, operationName + ": HTTP " + status);
             }
-            throw new GitHubGraphQlException(operationName + ": " + httpMessage(status, text), null);
+            throw new GitHubGraphQlException(operationName + ": " + GitHubHttp.httpMessage(status, text), null);
         }
         if (status >= 500) {
-            throw new RetryableHttpException(status, operationName + ": " + httpMessage(status, text),
+            throw new RetryableHttpException(status, operationName + ": " + GitHubHttp.httpMessage(status, text),
                     retryAfter.orElse(null));
         }
         if (status != 200) {
-            throw new GitHubGraphQlException(operationName + ": " + httpMessage(status, text), null);
+            throw new GitHubGraphQlException(operationName + ": " + GitHubHttp.httpMessage(status, text), null);
         }
 
         rawSink.save(operationName, requestKey, text);
@@ -155,8 +152,8 @@ public class GitHubGraphQlClient {
         JsonNode errors = root.path("errors");
         if (errors.isArray() && !errors.isEmpty()) {
             GitHubGraphQlException error = new GitHubGraphQlException(operationName + ": " + messages(errors), errors);
-            if (mentionsSecondaryLimit(error.getMessage()) || error.hasErrorType("RATE_LIMITED")) {
-                throw rateLimited(status, headers, retryAfter, error.getMessage());
+            if (GitHubHttp.mentionsSecondaryLimit(error.getMessage()) || error.hasErrorType("RATE_LIMITED")) {
+                throw GitHubHttp.rateLimited(guard, status, headers, retryAfter, error.getMessage());
             }
             throw error;
         }
@@ -167,44 +164,6 @@ public class GitHubGraphQlClient {
         stats.add(GRAPHQL_POINTS, cost);
         log.debug("{}: cost={}, remaining={}", operationName, cost, rateLimit.path("remaining").asText("?"));
         return data;
-    }
-
-    /**
-     * A rate limit answer becomes a {@link RetryableHttpException} without {@code retryAfter}:
-     * if the primary limit is used up, the pool already knows {@code resetAt} and the guard
-     * sleeps on the next attempt; otherwise (secondary limit) the guard waits right here.
-     * Either way the policy must not wait a second time.
-     */
-    private RetryableHttpException rateLimited(int status, HttpHeaders headers, Optional<Duration> retryAfter,
-                                               String message) throws InterruptedException {
-        if (!isPrimaryExhausted(headers)) {
-            guard.backOffSecondary(retryAfter);
-        }
-        return new RetryableHttpException(status, "GitHub rate limit: " + message, null);
-    }
-
-    /** 403 is a rate limit only with a sign of it; without one it means "no access". */
-    static boolean isRateLimitAnswer(HttpHeaders headers, String body, Optional<Duration> retryAfter) {
-        boolean nothingLeft = headers.firstValue("x-ratelimit-remaining").map(v -> v.strip().equals("0")).orElse(false);
-        return nothingLeft || retryAfter.isPresent() || mentionsSecondaryLimit(body);
-    }
-
-    /** The primary limit is used up and the headers say when it resets. */
-    static boolean isPrimaryExhausted(HttpHeaders headers) {
-        return RateLimitInfo.fromHeaders(headers).map(info -> info.remaining() == 0).orElse(false);
-    }
-
-    static boolean mentionsSecondaryLimit(String text) {
-        return text != null && text.toLowerCase(Locale.ROOT).contains("secondary rate limit");
-    }
-
-    /** Responses with status 400-499 and 500-599 go to {@value #HTTP_4XX} and {@value #HTTP_5XX}. */
-    static void countStatus(RunStats stats, int status) {
-        if (status >= 500 && status < 600) {
-            stats.inc(HTTP_5XX);
-        } else if (status >= 400 && status < 500) {
-            stats.inc(HTTP_4XX);
-        }
     }
 
     /** {@code "query SearchRepos($q: String!) {...}"} gives {@code SearchRepos}; a query without a name gives {@code anonymous}. */
@@ -221,18 +180,6 @@ public class GitHubGraphQlClient {
             joined.add(message.isTextual() ? message.asText() : error.toString());
         }
         return joined.toString();
-    }
-
-    /** Status and the beginning of the body, never the request headers. */
-    static String httpMessage(int status, String body) {
-        String text = body == null ? "" : body.strip();
-        if (text.isEmpty()) {
-            return "HTTP " + status;
-        }
-        if (text.length() > HttpStatusException.MAX_BODY_IN_MESSAGE) {
-            text = text.substring(0, HttpStatusException.MAX_BODY_IN_MESSAGE) + "...";
-        }
-        return "HTTP " + status + ": " + text;
     }
 
     private String toJson(Object value) {
