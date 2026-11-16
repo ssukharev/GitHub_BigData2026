@@ -6,7 +6,7 @@
 
 | Источник | Что берём | Задачи |
 |---|---|---|
-| GH Archive через BigQuery (запасной вариант - `github_events` на play.clickhouse.com) | готовые агрегаты событий (push, create repo, PR, star) по дням и часам | 1, 2 |
+| GH Archive через публичную копию в ClickHouse (`github_events` на play.clickhouse.com; BigQuery только для необязательной сверки) | готовые агрегаты событий по часам и месяцам: типы событий, люди и боты, коммиты, новые репозитории; ограничения ряда - [gharchive-limits.md](gharchive-limits.md) | 1, 2 |
 | GitHub API (GraphQL) | выборка репозиториев: метаданные, topics, README, флаги тестов/CI/Docker, активность коммитов | 1, 4, 5 |
 | GitHub API (REST, `/stargazers/history`) | история звёзд по дням | 4 |
 | GitHub Innovation Graph | разработчики по странам и кварталам | 1, 3 |
@@ -16,7 +16,7 @@
 
 | Участник           | Стек                                                                                                                                           |
 | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| Рушкевич Станислав | Java 21 (Spring Boot, Maven, JdbcTemplate, Jackson, google-cloud-bigquery, JUnit, Testcontainers), PostgreSQL + Flyway, Docker, GitHub Actions |
+| Рушкевич Станислав | Java 21 (Spring Boot, Maven, JdbcTemplate, Jackson, JUnit, Testcontainers), PostgreSQL + Flyway, Docker, GitHub Actions |
 | Попов Елисей       | Python (pandas, SQLAlchemy, scikit-learn, matplotlib), LLM для разметки                                                                        |
 | Сухарев Сергей     | Java (HttpClient, Jackson, JDBC, Tablesaw, Apache Commons Math, XChart), SQL (PostgreSQL / BigQuery)                                           |
 | Скрипкарь Антон    | Python (requests, pandas, statsmodels, scikit-learn / бустинг, matplotlib)                                                                     |
@@ -60,7 +60,7 @@ github-analytics/
 ├── collector/                # Java, Maven multi-module
 │   ├── core/                 # конфиг, JDBC, Flyway        [Стас]
 │   ├── github/               # GraphQL/REST клиент         [Стас]
-│   ├── gharchive/            # запросы к BigQuery          [Стас]
+│   ├── gharchive/            # агрегаты GH Archive (ClickHouse) [Стас]
 │   ├── innovation-graph/     # загрузка Innovation Graph   [Сергей]
 │   └── worldbank/            # загрузка World Bank         [Сергей]
 ├── analytics-java/           # задачи 1, 3                 [Сергей]
@@ -69,7 +69,7 @@ github-analytics/
 │   ├── collectors/stars.py   # история звёзд               [Антон]
 │   └── notebooks/            # task2, task4                [Антон]
 │                             # task5                       [Елисей]
-├── sql/bigquery/             # запросы к GH Archive
+├── sql/clickhouse/           # разведочные запросы к GH Archive
 ├── docs/
 │   ├── article/              # статья
 │   ├── slides/               # презентация
