@@ -66,10 +66,11 @@ public class CollectionRunService {
      * Marks a running run as successful.
      *
      * @param rows  number of rows the collector wrote
-     * @param stats counters of the run (requests, retries, ...) stored in {@code stats}
+     * @param stats counters of the run (requests, retries, ...) stored in {@code stats},
+     *              usually {@link RunStats#snapshot()}
      * @throws IllegalStateException if the run does not exist or is not running any more
      */
-    public void finish(long runId, long rows, Map<String, Object> stats) {
+    public void finish(long runId, long rows, Map<String, ?> stats) {
         if (rows < 0) {
             throw new IllegalArgumentException("rows must be >= 0, got " + rows);
         }
@@ -105,7 +106,7 @@ public class CollectionRunService {
         }
     }
 
-    private String toJson(Map<String, Object> map) {
+    private String toJson(Map<String, ?> map) {
         try {
             return json.writeValueAsString(map == null ? Map.of() : map);
         } catch (JsonProcessingException e) {

@@ -89,6 +89,22 @@ class CollectionRunServiceIT {
     }
 
     @Test
+    void finishStoresRunStatsSnapshot() {
+        long id = runs.start("github-repos");
+        RunStats stats = new RunStats();
+        stats.add("retries", 4);
+        stats.inc("http_5xx");
+
+        runs.finish(id, 1, stats.snapshot());
+
+        Map<String, Object> row = jdbc.queryForMap(
+                "SELECT (stats->>'retries')::int AS retries, (stats->>'http_5xx')::int AS http_5xx "
+                        + "FROM core.collection_runs WHERE id = ?", id);
+        assertThat(row.get("retries")).isEqualTo(4);
+        assertThat(row.get("http_5xx")).isEqualTo(1);
+    }
+
+    @Test
     void finishOfFinishedRunIsRejected() {
         long id = runs.start("github-repos");
         runs.finish(id, 10);
