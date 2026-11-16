@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>ru.spbstu.ghanalytics</groupId>
+        <artifactId>github-analytics</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+        <relativePath>../../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>collector-app</artifactId>
+    <description>Command line entry point: runs collectors by source name</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>ru.spbstu.ghanalytics</groupId>
+            <artifactId>collector-core</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>ru.spbstu.ghanalytics</groupId>
+            <artifactId>collector-github</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>ru.spbstu.ghanalytics</groupId>
+            <artifactId>collector-gharchive</artifactId>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <finalName>collector</finalName> <!-- the file will be target/collector.jar -->
+        <plugins>
+            <!-- Packs all modules and libraries into one runnable jar -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>
