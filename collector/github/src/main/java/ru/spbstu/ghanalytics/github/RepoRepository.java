@@ -4,6 +4,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 import java.sql.Types;
+import java.util.Collection;
 import java.util.List;
 
 /**
@@ -112,5 +113,32 @@ public class RepoRepository {
             ps.setString(34, row.languages());   // JSON text or null; the SQL casts it ?::jsonb
         });
         return rows.size();
+    }
+
+    /**
+     * Replaces the file tree entries of the given repositories: old rows go, new rows come.
+     * A file that was deleted or renamed must not stay in the table forever. The two statements
+     * share no transaction: if the insert fails, the page is written again on the next run.
+     *
+     * @param repoIds every repository of the page, also those without entries (an empty repository)
+     */
+    public void replaceTreeEntries(Collection<Long> repoIds, List<RepoTreeEntryRow> rows) {
+        if (repoIds.isEmpty()) {
+            return;
+        }
+        jdbc.update(con -> {
+            var ps = con.prepareStatement("DELETE FROM core.repo_tree_entries WHERE repo_id = ANY (?)");
+            ps.setArray(1, con.createArrayOf("bigint", repoIds.toArray()));
+            return ps;
+        });
+        if (rows.isEmpty()) {
+            return;
+        }
+        jdbc.batchUpdate("INSERT INTO core.repo_tree_entries (repo_id, path, type) VALUES (?, ?, ?)",
+                rows, BATCH_SIZE, (ps, row) -> {
+                    ps.setLong(1, row.repoId());
+                    ps.setString(2, row.path());
+                    ps.setString(3, row.type());
+                });
     }
 }
