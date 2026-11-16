@@ -65,6 +65,13 @@ public class RepoRepository {
                 languages          = EXCLUDED.languages
             """;
 
+    private static final String UPSERT_README = """
+            INSERT INTO core.readmes (repo_id, text, collected_at)
+            VALUES (?, ?, now())
+            ON CONFLICT (repo_id) DO UPDATE
+            SET text = EXCLUDED.text, collected_at = EXCLUDED.collected_at
+            """;
+
     private final JdbcTemplate jdbc;
 
     public RepoRepository(JdbcTemplate jdbc) {
@@ -140,5 +147,20 @@ public class RepoRepository {
                     ps.setString(2, row.path());
                     ps.setString(3, row.type());
                 });
+    }
+
+    /**
+     * Upsert into {@code core.readmes}: one row per repository, null text for "no README".
+     * The text must not contain character 0 ({@link GitHubRestClient#decode} removes it):
+     * PostgreSQL rejects it, and the whole batch of the page is rolled back.
+     */
+    public void upsertReadmes(List<ReadmeRow> rows) {
+        if (rows.isEmpty()) {
+            return;
+        }
+        jdbc.batchUpdate(UPSERT_README, rows, BATCH_SIZE, (ps, row) -> {
+            ps.setLong(1, row.repoId());
+            ps.setString(2, row.text());
+        });
     }
 }
