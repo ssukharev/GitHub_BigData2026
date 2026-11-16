@@ -84,6 +84,12 @@
                     </execution>
                 </executions>
             </plugin>
+            <!-- Runs *IT integration tests (Docker needed) in the verify phase;
+                 executions come from spring-boot-starter-parent -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+            </plugin>
         </plugins>
     </build>
 </project>
