@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JacksonException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import ru.spbstu.ghanalytics.core.run.RunStats;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -140,6 +141,27 @@ class RetryPolicyTest {
         assertThat(calls).hasValue(1);
         assertThat(sleeps).isEmpty();
         assertThat(Thread.currentThread().isInterrupted()).isTrue();
+    }
+
+    @Test
+    void countsRetries() {
+        RunStats stats = new RunStats();
+        RetryPolicy counting = new RetryPolicy(5, Duration.ofSeconds(1), Duration.ofSeconds(30),
+                sleeps::add, () -> 0.0, stats);
+
+        counting.execute(() -> {
+            if (calls.incrementAndGet() < 3) {
+                throw new IOException("connection reset");
+            }
+            return "ok";
+        });
+        assertThat(stats.snapshot()).containsEntry(RetryPolicy.RETRIES, 2L);
+
+        stats.reset();
+        assertThatThrownBy(() -> counting.execute(() -> {
+            throw new RetryableHttpException(503, "HTTP 503", null);
+        })).isInstanceOf(RetryableHttpException.class);
+        assertThat(stats.snapshot()).containsEntry(RetryPolicy.RETRIES, 4L);   // the 5th failure is not a retry
     }
 
     @Test

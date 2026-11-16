@@ -4,6 +4,7 @@ import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import ru.spbstu.ghanalytics.core.run.RunStats;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -32,6 +33,7 @@ class RetryPolicyHttpTest {
     private final Queue<Reply> replies = new ConcurrentLinkedQueue<>();
     private final AtomicInteger hits = new AtomicInteger();
     private final List<Duration> sleeps = new ArrayList<>();
+    private final RunStats stats = new RunStats();
     private final HttpClient http = HttpClientFactory.create(Duration.ofSeconds(2));
     private HttpServer server;
     private RetryPolicy retry;
@@ -58,7 +60,7 @@ class RetryPolicyHttpTest {
             exchange.close();
         });
         server.start();
-        retry = new RetryPolicy(5, Duration.ofSeconds(1), Duration.ofSeconds(30), sleeps::add, () -> 0.0);
+        retry = new RetryPolicy(5, Duration.ofSeconds(1), Duration.ofSeconds(30), sleeps::add, () -> 0.0, stats);
     }
 
     @AfterEach
@@ -76,6 +78,7 @@ class RetryPolicyHttpTest {
         assertThat(get()).isEqualTo("[1, 2, 3]");
         assertThat(hits).hasValue(3);
         assertThat(sleeps).containsExactly(Duration.ofMillis(500), Duration.ofSeconds(1));
+        assertThat(stats.snapshot()).containsEntry(RetryPolicy.RETRIES, 2L);
     }
 
     @Test
@@ -97,6 +100,7 @@ class RetryPolicyHttpTest {
                 .hasMessageContaining("Not Found");
         assertThat(hits).hasValue(1);
         assertThat(sleeps).isEmpty();
+        assertThat(stats.snapshot()).isEmpty();
     }
 
     private String get() {

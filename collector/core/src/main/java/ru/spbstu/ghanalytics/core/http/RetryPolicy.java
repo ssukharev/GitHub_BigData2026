@@ -3,12 +3,14 @@ package ru.spbstu.ghanalytics.core.http;
 import com.fasterxml.jackson.core.JacksonException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import ru.spbstu.ghanalytics.core.run.RunStats;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.DoubleSupplier;
 
 /**
@@ -22,6 +24,11 @@ import java.util.function.DoubleSupplier;
  * Pause after failed attempt {@code n}: {@code exp = min(maxDelay, baseDelay * 2^(n-1))},
  * {@code delay = exp/2 + exp/2 * jitter}, so at least half of {@code exp}. If the server sent
  * {@code Retry-After}, the policy waits exactly that long instead.
+ * <p>
+ * Every pause adds one to the {@value #RETRIES} counter of {@link RunStats}: a call that failed
+ * four times and then passed is 4 retries; the last failure that goes out is not a retry.
+ * In the application inject the bean built by {@link HttpClientFactory} (it counts into the
+ * {@code RunStats} bean); construct a policy yourself only in tests.
  * <pre>{@code
  * String body = retry.execute(() -> {
  *     HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
@@ -31,6 +38,9 @@ import java.util.function.DoubleSupplier;
  * }</pre>
  */
 public final class RetryPolicy {
+
+    /** {@link RunStats} key: pauses between attempts. */
+    public static final String RETRIES = "retries";
 
     private static final Logger log = LoggerFactory.getLogger(RetryPolicy.class);
 
@@ -42,6 +52,15 @@ public final class RetryPolicy {
     private final Duration maxDelay;
     private final Sleeper sleeper;
     private final DoubleSupplier jitter;   // values in [0, 1)
+    private final RunStats stats;
+
+    /**
+     * For tests that do not look at counters: retries go to a private {@link RunStats} nobody reads.
+     * Never use it in the application, or the retries vanish from the run journal.
+     */
+    public RetryPolicy(int maxAttempts, Duration baseDelay, Duration maxDelay, Sleeper sleeper, DoubleSupplier jitter) {
+        this(maxAttempts, baseDelay, maxDelay, sleeper, jitter, new RunStats());
+    }
 
     /**
      * @param maxAttempts how many times the call runs at most, including the first one; at least 1
@@ -49,8 +68,10 @@ public final class RetryPolicy {
      * @param maxDelay    ceiling of the backoff, not less than {@code baseDelay}; {@code Retry-After} may exceed it
      * @param sleeper     {@link Sleeper#SYSTEM} in production, a recording lambda in tests
      * @param jitter      random values in [0, 1), for example {@code () -> ThreadLocalRandom.current().nextDouble()}
+     * @param stats       where the {@value #RETRIES} counter goes
      */
-    public RetryPolicy(int maxAttempts, Duration baseDelay, Duration maxDelay, Sleeper sleeper, DoubleSupplier jitter) {
+    public RetryPolicy(int maxAttempts, Duration baseDelay, Duration maxDelay, Sleeper sleeper, DoubleSupplier jitter,
+                       RunStats stats) {
         if (maxAttempts < 1) {
             throw new IllegalArgumentException("maxAttempts must be >= 1, got " + maxAttempts);
         }
@@ -67,10 +88,21 @@ public final class RetryPolicy {
         this.maxDelay = maxDelay;
         this.sleeper = Objects.requireNonNull(sleeper, "sleeper");
         this.jitter = Objects.requireNonNull(jitter, "jitter");
+        this.stats = Objects.requireNonNull(stats, "stats");
     }
 
     /**
-     * Runs the call and repeats it after temporary failures.
+     * Production settings: 5 attempts, backoff from 1 s up to 30 s (about 15 s of waiting at worst),
+     * real sleep, random jitter; retries are counted in {@code stats}.
+     */
+    public static RetryPolicy defaults(RunStats stats) {
+        // ThreadLocalRandom.current() is called at each use, never kept in a field
+        return new RetryPolicy(5, Duration.ofSeconds(1), Duration.ofSeconds(30), Sleeper.SYSTEM,
+                () -> ThreadLocalRandom.current().nextDouble(), stats);
+    }
+
+    /**
+     * Runs the call and repeats it after temporary failures; before every pause adds one to {@value #RETRIES}.
      * After the last attempt the last failure goes out: a {@code RuntimeException} as is,
      * an {@code IOException} wrapped in {@link UncheckedIOException}.
      * If the thread is interrupted (in the call or during a pause), the interrupt flag is restored
@@ -90,6 +122,7 @@ public final class RetryPolicy {
                 }
                 Duration delay = delayFor(attempt, e);
                 log.warn("Attempt {}/{} failed: {}. Retrying in {} ms", attempt, maxAttempts, e.toString(), delay.toMillis());
+                stats.inc(RETRIES);
                 try {
                     sleeper.sleep(delay);
                 } catch (InterruptedException ie) {

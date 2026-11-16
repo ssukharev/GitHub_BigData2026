@@ -2,14 +2,15 @@ package ru.spbstu.ghanalytics.core.http;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import ru.spbstu.ghanalytics.core.run.RunStats;
 
 import java.net.http.HttpClient;
 import java.time.Duration;
 
 /**
- * The one {@link HttpClient} of the application. The client is immutable and thread-safe,
- * keeps a connection pool and multiplexes requests over one HTTP/2 connection,
- * so every source shares it instead of building its own.
+ * The one {@link HttpClient} and the one {@link RetryPolicy} of the application.
+ * The client is immutable and thread-safe, keeps a connection pool and multiplexes requests
+ * over one HTTP/2 connection, so every source shares it instead of building its own.
  * <p>
  * The client has only a connect timeout: every request must set its own
  * {@code HttpRequest.Builder.timeout(...)}, otherwise one hanging answer blocks the whole run.
@@ -24,6 +25,12 @@ public class HttpClientFactory {
     @Bean
     public HttpClient httpClient() {
         return create(CONNECT_TIMEOUT);
+    }
+
+    /** {@link RetryPolicy#defaults(RunStats)} counting retries in the {@link RunStats} bean. */
+    @Bean
+    public RetryPolicy retryPolicy(RunStats stats) {
+        return RetryPolicy.defaults(stats);
     }
 
     /**
