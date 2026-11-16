@@ -3,12 +3,15 @@ package ru.spbstu.ghanalytics.github;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.io.ByteArrayOutputStream;
+import java.nio.charset.StandardCharsets;
 import java.sql.Timestamp;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -175,6 +178,42 @@ class RepoRepositoryIT {
         assertThatThrownBy(() -> repository.replaceTreeEntries(List.of(1L),
                 List.of(new RepoTreeEntryRow(1, "current", "link"))))
                 .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    void readmesAreUpsertedOneRowPerRepositoryWithNullForMissing() {
+        repository.upsertRepos(List.of(full(1, "a/one", 10, null, T1), full(2, "b/two", 20, null, T1)));
+        List<ReadmeRow> readmes = List.of(new ReadmeRow(1, "# One"), new ReadmeRow(2, null));
+
+        repository.upsertReadmes(readmes);
+        repository.upsertReadmes(readmes);
+
+        assertThat(count("core.readmes")).isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT count(text) FROM core.readmes", Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT text FROM core.readmes WHERE repo_id = 2", String.class)).isNull();
+    }
+
+    @Test
+    void utf16ReadmeAfterDecodeReadsBackAsRussianText() {
+        repository.upsertRepos(List.of(full(1, "a/one", 10, null, T1)));
+        ByteArrayOutputStream body = new ByteArrayOutputStream();
+        body.writeBytes(new byte[]{(byte) 0xFF, (byte) 0xFE});
+        body.writeBytes("# Привет, мир".getBytes(StandardCharsets.UTF_16LE));
+
+        repository.upsertReadmes(List.of(new ReadmeRow(1, GitHubRestClient.decode(body.toByteArray()))));
+
+        assertThat(jdbc.queryForObject("SELECT text FROM core.readmes WHERE repo_id = 1", String.class))
+                .isEqualTo("# Привет, мир");
+    }
+
+    @Test
+    void nulCharacterPastDecodeFailsTheWholePage() {
+        repository.upsertRepos(List.of(full(1, "a/one", 10, null, T1), full(2, "b/two", 20, null, T1)));
+        List<ReadmeRow> page = List.of(new ReadmeRow(1, "# Fine"), new ReadmeRow(2, "a\0b"));
+
+        assertThatThrownBy(() -> repository.upsertReadmes(page)).isInstanceOf(DataAccessException.class);
+
+        assertThat(count("core.readmes")).as("the good README of the page is gone too").isZero();
     }
 
     private static int count(String table) {
