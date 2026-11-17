@@ -1,5 +1,7 @@
 package ru.spbstu.ghanalytics.github;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -78,6 +80,8 @@ public class RepoCollector implements Collector {
     static final String QUERY_RESOURCE = "search-repos.graphql";
 
     private static final Logger log = LoggerFactory.getLogger(RepoCollector.class);
+    private static final TypeReference<LinkedHashMap<String, Integer>> POPULATIONS = new TypeReference<>() {
+    };
 
     /** One window or day slice that was taken, with the number of repositories in it. */
     record WindowResult(TimeWindow window, int repos) {
@@ -146,7 +150,7 @@ public class RepoCollector implements Collector {
             collectedAt = OffsetDateTime.now(clock);
             List<DateRange> strata = SampleWindowPlanner.strata(ctx.from(), ctx.to());
             SampleWindowPlanner planner = new SampleWindowPlanner(seed, SampleWindowPlanner.DEFAULT_WIDTH);
-            Map<String, Integer> populations = countPopulations(strata, ctx);
+            Map<String, Integer> populations = loadOrCountPopulations(strata, ctx, seed);
             List<Integer> quotas = quotas(strata, populations, ctx);
             log.info("plan: {} months {}..{}, stars >= {}, quotas {}-{} (sum {}), window {} min, seed {}",
                     strata.size(), ctx.from(), ctx.to(), ctx.minStars(), Collections.min(quotas), Collections.max(quotas),
@@ -170,13 +174,30 @@ public class RepoCollector implements Collector {
         }
     }
 
-    /** Populations of the months by keys {@code "2018-01-01"}: one count per month. */
-    Map<String, Integer> countPopulations(List<DateRange> strata, CollectionContext ctx) {
+    /**
+     * Populations of the months by keys {@code "2018-01-01"}. With {@code --resume} from the plan
+     * checkpoint, so the weights refer to the numbers the quotas were computed from; otherwise one
+     * count per month, written to the plan checkpoint.
+     */
+    Map<String, Integer> loadOrCountPopulations(List<DateRange> strata, CollectionContext ctx, long seed) {
+        String key = planKey(ctx, seed);
+        if (ctx.resume()) {
+            Optional<String> saved = checkpoints.get(SOURCE, key);
+            if (saved.isPresent()) {
+                Map<String, Integer> populations = readPopulations(saved.get());
+                if (populations.keySet().containsAll(strata.stream().map(RepoCollector::monthKey).toList())) {
+                    log.info("populations of {} months from checkpoint {}", strata.size(), key);
+                    return populations;
+                }
+                log.warn("checkpoint {} misses months of the plan: counting the populations again", key);
+            }
+        }
         GitHubRepoCounter counter = new GitHubRepoCounter(client, ctx.minStars());
         Map<String, Integer> populations = new LinkedHashMap<>();
         for (DateRange stratum : strata) {
             populations.put(monthKey(stratum), counter.count(stratum));
         }
+        checkpoints.put(SOURCE, key, writePopulations(populations));
         log.info("populations of {} months counted: {} in all", strata.size(),
                 populations.values().stream().mapToLong(Integer::longValue).sum());
         return populations;
@@ -442,6 +463,23 @@ public class RepoCollector implements Collector {
     /** Half the size, but not below {@link #MIN_PAGE_SIZE}. */
     static int shrink(int pageSize) {
         return Math.max(MIN_PAGE_SIZE, pageSize / 2);
+    }
+
+    /** Only strings and numbers: a {@code DateRange} would add a "singleDay" field through its isSingleDay(). */
+    private String writePopulations(Map<String, Integer> populations) {
+        try {
+            return objectMapper.writeValueAsString(populations);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("cannot write populations as JSON", e);
+        }
+    }
+
+    private Map<String, Integer> readPopulations(String json) {
+        try {
+            return objectMapper.readValue(json, POPULATIONS);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("bad plan checkpoint: " + json, e);
+        }
     }
 
     /** A {@code HashMap}: the cursor of the first page is null, {@code Map.of} would throw. */

@@ -228,14 +228,25 @@ class RepoCollectorTest {
     // ---- the plan ----
 
     @Test
-    void countsEveryMonthOnce() {
+    void countsEveryMonthOnceAndKeepsThePopulationsInThePlanCheckpoint() {
         countFor = qualifier -> qualifier.startsWith("created:2024-02") ? 900 : 1000;
 
         collector.collect(new CollectionContext(JAN_FROM, LocalDate.of(2024, 3, 10), 10, 3, false));
 
         assertThat(countCalls).containsExactly(JANUARY_Q, "is:public stars:>=10 created:2024-02-01..2024-02-29",
                 "is:public stars:>=10 created:2024-03-01..2024-03-10");
+        assertThat(checkpoints.get(RepoCollector.SOURCE, "plan:2024-01-01..2024-03-10:stars>=10:limit=3:seed=42"))
+                .contains("{\"2024-01-01\":1000,\"2024-02-01\":900,\"2024-03-01\":1000}");
         assertThat(searchCalls).as("quota 1 per month, 1 repository per window").hasSize(3);
+    }
+
+    @Test
+    void resumeTakesThePopulationsFromThePlanCheckpoint() {
+        checkpoints.put(RepoCollector.SOURCE, "plan:2024-01-01..2024-01-31:stars>=10:limit=2:seed=42", "{\"2024-01-01\":777}");
+
+        collector.collect(january(2, true));
+
+        assertThat(countCalls).isEmpty();
     }
 
     @Test
@@ -340,6 +351,7 @@ class RepoCollectorTest {
         collector.collect(january(4, true));
 
         assertThat(searchCalls).isEmpty();
+        assertThat(countCalls).isEmpty();
         assertThat(stats.snapshot()).containsEntry(RepoCollector.WINDOWS_RESUMED, 2L)
                 .doesNotContainKey(RepoCollector.WINDOWS_FETCHED);
         verify(runs, times(2)).finish(eq(7L), eq(4L), any());
