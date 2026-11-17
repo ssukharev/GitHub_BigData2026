@@ -254,6 +254,17 @@ class RepoCollectorTest {
     }
 
     @Test
+    void recordsTheSeedInTheRunParams() {
+        collector(7).collect(january(1, false));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<String, Object>> params = ArgumentCaptor.forClass(Map.class);
+        verify(runs).start(eq(RepoCollector.SOURCE), params.capture());
+        assertThat(params.getValue()).containsExactly(Map.entry("from", "2024-01-01"), Map.entry("to", "2024-01-31"),
+                Map.entry("min_stars", 10), Map.entry("limit", 1), Map.entry("resume", false), Map.entry("seed", 7L));
+    }
+
+    @Test
     void takesWindowsInThePlanOrderUntilTheQuotaIsReached() {
         reposFor = qualifier -> 2;
 

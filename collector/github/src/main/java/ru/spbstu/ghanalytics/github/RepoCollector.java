@@ -144,7 +144,9 @@ public class RepoCollector implements Collector {
     @Override
     public void collect(CollectionContext ctx) {
         long seed = sample.seed();
-        long runId = runs.start(SOURCE, ctx.toParams());
+        Map<String, Object> params = new LinkedHashMap<>(ctx.toParams());   // from, to, min_stars, limit, resume
+        params.put("seed", seed);
+        long runId = runs.start(SOURCE, params);
         try {
             pageSize = PAGE_SIZE;
             collectedAt = OffsetDateTime.now(clock);
