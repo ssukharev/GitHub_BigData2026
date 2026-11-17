@@ -13,6 +13,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.sql.Timestamp;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -214,6 +215,21 @@ class RepoRepositoryIT {
         assertThatThrownBy(() -> repository.upsertReadmes(page)).isInstanceOf(DataAccessException.class);
 
         assertThat(count("core.readmes")).as("the good README of the page is gone too").isZero();
+    }
+
+    @Test
+    void findsRepositoriesOfThePeriodWithoutAReadmeRow() {
+        repository.upsertRepos(List.of(full(1, "a/one", 10, null, T1), full(2, "b/two", 20, null, T1),
+                full(3, "c/three", 30, null, T1), withNulls(4, "d/four")));   // 1-3: 2024-01-14, 4: 2024-01-01T00:00:00Z
+        repository.upsertReadmes(List.of(new ReadmeRow(1, "# One"), new ReadmeRow(2, null)));   // 2: checked, no README
+
+        assertThat(repository.findWithoutReadme(LocalDate.of(2024, 1, 1), LocalDate.of(2024, 1, 31)))
+                .containsExactly(new RepoRepository.RepoRef(3, "c/three", false), new RepoRepository.RepoRef(4, "d/four", null));
+        assertThat(repository.findWithoutReadme(LocalDate.of(2024, 1, 2), LocalDate.of(2024, 1, 13))).isEmpty();
+        assertThat(repository.findWithoutReadme(LocalDate.of(2023, 12, 1), LocalDate.of(2023, 12, 31)))
+                .as("the first second of the next day is not in the period").isEmpty();
+        assertThat(repository.findWithoutReadme(LocalDate.of(2024, 1, 14), LocalDate.of(2024, 1, 14)))
+                .extracting(RepoRepository.RepoRef::id).containsExactly(3L);
     }
 
     private static int count(String table) {

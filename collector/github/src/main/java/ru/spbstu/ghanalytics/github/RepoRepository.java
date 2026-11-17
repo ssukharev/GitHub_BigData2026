@@ -4,6 +4,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 import java.sql.Types;
+import java.time.LocalDate;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.Collection;
 import java.util.List;
 
@@ -72,10 +75,33 @@ public class RepoRepository {
             SET text = EXCLUDED.text, collected_at = EXCLUDED.collected_at
             """;
 
+    private static final String WITHOUT_README = """
+            SELECT r.id, r.full_name, r.is_empty FROM core.repos r
+            WHERE r.created_at >= ? AND r.created_at < ?
+              AND NOT EXISTS (SELECT 1 FROM core.readmes m WHERE m.repo_id = r.id)
+            ORDER BY r.id
+            """;
+
+    /** A repository to ask a README for: what the request and the empty check need. */
+    public record RepoRef(long id, String fullName, Boolean isEmpty) {
+    }
+
     private final JdbcTemplate jdbc;
 
     public RepoRepository(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
+    }
+
+    /**
+     * Repositories created in the period (both days included, UTC) that have no row in
+     * {@code core.readmes} at all: not checked yet, or their README request failed.
+     * A row with null text ("no README") is a checked repository and is not returned.
+     */
+    public List<RepoRef> findWithoutReadme(LocalDate from, LocalDate to) {
+        return jdbc.query(WITHOUT_README,
+                (rs, i) -> new RepoRef(rs.getLong("id"), rs.getString("full_name"), rs.getObject("is_empty", Boolean.class)),
+                OffsetDateTime.of(from.atStartOfDay(), ZoneOffset.UTC),
+                OffsetDateTime.of(to.plusDays(1).atStartOfDay(), ZoneOffset.UTC));
     }
 
     /** Upsert into {@code core.repos} by {@code id}. Returns the number of rows given. */

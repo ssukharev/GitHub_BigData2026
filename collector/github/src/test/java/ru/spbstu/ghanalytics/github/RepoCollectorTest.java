@@ -537,6 +537,22 @@ class RepoCollectorTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void missingReadmesOfThePeriodAreAskedAgainAtTheEnd() {
+        when(repository.findWithoutReadme(JAN_FROM, JAN_TO)).thenReturn(List.of(
+                new RepoRepository.RepoRef(5, "owner/five", false), new RepoRepository.RepoRef(6, "owner/six", true)));
+        when(rest.readme("owner/five")).thenReturn(Optional.of("# Five"));
+        countFor = qualifier -> 0;   // no windows at all: only the missing READMEs
+
+        collector.collect(january(1, false));
+
+        var readmes = ArgumentCaptor.forClass(List.class);
+        verify(repository).upsertReadmes(readmes.capture());
+        assertThat((List<ReadmeRow>) readmes.getValue()).containsExactly(new ReadmeRow(5, "# Five"), new ReadmeRow(6, null));
+        verify(rest, never()).readme("owner/six");
+    }
+
+    @Test
     void aRejectedTokenStopsTheRun() {
         when(rest.readme("owner/repo1")).thenThrow(new HttpStatusException(401, "GitHub rejected token ****0001"));
         pages.add(() -> page(2, false, null));

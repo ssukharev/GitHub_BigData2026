@@ -167,6 +167,7 @@ public class RepoCollector implements Collector {
                         i + 1, strata.size(), monthKey(stratum), result.population(), result.quota(), result.sampled(),
                         result.windows().size(), "%.1f".formatted(result.weight()));
             }
+            fillMissingReadmes(ctx);
             SampleReport.write(sample.reportDir(), results);
             int total = results.stream().mapToInt(StratumResult::sampled).sum();
             log.info("{} finished: {} repositories in {} months, reports in {}", SOURCE, total, results.size(),
@@ -397,9 +398,27 @@ public class RepoCollector implements Collector {
     }
 
     /**
+     * A README that failed leaves a repository without a row in {@code core.readmes}. Repositories
+     * of the period without one get another request at the end of the run: with {@code --resume}
+     * done windows are not asked again, so this is how their READMEs are completed.
+     */
+    void fillMissingReadmes(CollectionContext ctx) {
+        List<RepoRepository.RepoRef> missing = repository.findWithoutReadme(ctx.from(), ctx.to());
+        if (missing.isEmpty()) {
+            return;
+        }
+        log.info("{} repositories of {}..{} have no README row: asking again", missing.size(), ctx.from(), ctx.to());
+        List<ReadmeRow> readmes = new ArrayList<>();
+        for (RepoRepository.RepoRef ref : missing) {
+            readme(ref.id(), ref.fullName(), ref.isEmpty()).ifPresent(readmes::add);
+        }
+        repository.upsertReadmes(readmes);
+    }
+
+    /**
      * README of one repository: text, or null text for "no README". An error after all retries
-     * is logged and skipped (the repository simply gets no row in {@code core.readmes}); a rejected
-     * token or an interrupt stops the run.
+     * is logged and skipped (the repository has no row in {@code core.readmes} and is asked again
+     * by {@link #fillMissingReadmes}); a rejected token or an interrupt stops the run.
      */
     private Optional<ReadmeRow> readme(long id, String fullName, Boolean isEmpty) {
         if (Boolean.TRUE.equals(isEmpty)) {
