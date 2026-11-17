@@ -10,7 +10,11 @@ import java.util.Set;
 
 /**
  * Parsed command line of one run:
- * {@code --source=<name> [--from=YYYY-MM-DD] [--to=YYYY-MM-DD] [--min-stars=N] [--limit=N] [--resume]}.
+ * {@code --source=<name> [--from=YYYY-MM-DD] [--to=YYYY-MM-DD] [--min-stars=N] [--limit=N] [--seed=N] [--resume]}.
+ * <p>
+ * {@code --seed} is only checked here: it is the short form of the Spring property
+ * {@code collector.sample.seed} ({@code application.yml} maps it), so it reaches the collector
+ * as a setting, not through {@link CollectionContext}.
  * <p>
  * Options with a dot ({@code --spring.datasource.url=...}) are Spring property overrides
  * and are left to Spring; any other unknown option is an error, so typos do not pass silently.
@@ -20,7 +24,7 @@ public record CollectorArgs(String source, CollectionContext context) {
     /** Default start of the period: the first year of the study. */
     public static final LocalDate DEFAULT_FROM = LocalDate.of(2018, 1, 1);
 
-    static final Set<String> KNOWN_OPTIONS = Set.of("source", "from", "to", "min-stars", "limit", "resume");
+    static final Set<String> KNOWN_OPTIONS = Set.of("source", "from", "to", "min-stars", "limit", "seed", "resume");
 
     public static final String USAGE = """
             Usage: java -jar collector.jar --source=<name> [options]
@@ -29,6 +33,7 @@ public record CollectorArgs(String source, CollectionContext context) {
               --to=YYYY-MM-DD       last day of the period, default today
               --min-stars=N         minimal stars for repository sources, default 0
               --limit=N             maximal number of items, 0 = no limit (default)
+              --seed=N              seed of the random sample plan (github-repos), default 42
               --resume              continue from saved checkpoints
             Exit codes: 0 success, 1 collector failed, 2 invalid arguments or unknown source.""";
 
@@ -63,6 +68,7 @@ public record CollectorArgs(String source, CollectionContext context) {
         int minStars = number(args, "min-stars", 0);
         int limit = number(args, "limit", 0);
         boolean resume = flag(args, "resume");
+        seed(args);
 
         try {
             return new CollectorArgs(source.strip(), new CollectionContext(from, to, minStars, limit, resume));
@@ -106,6 +112,19 @@ public record CollectorArgs(String source, CollectionContext context) {
             return Integer.parseInt(value);
         } catch (NumberFormatException e) {
             throw new InvalidArgumentsException("--" + name + " must be an integer, got '" + value + "'", e);
+        }
+    }
+
+    /** Only validates: Spring binds the value to {@code collector.sample.seed}. */
+    private static void seed(ApplicationArguments args) {
+        String value = single(args, "seed");
+        if (value == null) {
+            return;
+        }
+        try {
+            Long.parseLong(value);
+        } catch (NumberFormatException e) {
+            throw new InvalidArgumentsException("--seed must be an integer, got '" + value + "'", e);
         }
     }
 
