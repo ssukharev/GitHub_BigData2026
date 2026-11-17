@@ -87,4 +87,37 @@ public class SampleWindowPlanner {
         Collections.shuffle(all, new SplittableRandom(seed + GOLDEN_GAMMA * stratum.from().toEpochDay()));
         return all;
     }
+
+    /**
+     * Divides {@code limit} between the weights by cumulative rounding: the quotas add up to
+     * exactly {@code limit}, and each differs from its exact share by less than one
+     * (equal weights, 96 months and 5000 give 52 or 53; rounding each share would give 4992).
+     *
+     * @param weights non-negative, at least one of them positive
+     */
+    public static List<Integer> allocate(List<Integer> weights, int limit) {
+        if (limit < 0) {
+            throw new IllegalArgumentException("limit must be >= 0, got " + limit);
+        }
+        long total = 0;
+        for (int w : weights) {
+            if (w < 0) {
+                throw new IllegalArgumentException("weights must be >= 0, got " + weights);
+            }
+            total += w;
+        }
+        if (total == 0) {
+            throw new IllegalArgumentException("at least one weight must be positive, got " + weights);
+        }
+        List<Integer> quotas = new ArrayList<>(weights.size());
+        double cumulative = 0;
+        long assigned = 0;
+        for (int w : weights) {
+            cumulative += (double) limit * w / total;
+            long target = Math.round(cumulative);
+            quotas.add((int) (target - assigned));
+            assigned = target;
+        }
+        return quotas;
+    }
 }
