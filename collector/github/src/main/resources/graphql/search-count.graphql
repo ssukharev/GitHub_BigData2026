@@ -1,0 +1,9 @@
+# Number of repositories that match a search string. Variables: q (search string).
+# No nodes are asked for, but every connection needs first or last between 1 and 100.
+# The operation name goes to raw.github_responses.source: CountRepos tells counts from SearchRepos pages.
+query CountRepos($q: String!) {
+  search(query: $q, type: REPOSITORY, first: 1) {
+    repositoryCount
+  }
+  rateLimit { limit cost remaining resetAt }
+}
