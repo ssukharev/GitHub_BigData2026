@@ -165,8 +165,10 @@ public class RepoCollector implements Collector {
                         i + 1, strata.size(), monthKey(stratum), result.population(), result.quota(), result.sampled(),
                         result.windows().size(), "%.1f".formatted(result.weight()));
             }
+            SampleReport.write(sample.reportDir(), results);
             int total = results.stream().mapToInt(StratumResult::sampled).sum();
-            log.info("{} finished: {} repositories in {} months", SOURCE, total, results.size());
+            log.info("{} finished: {} repositories in {} months, reports in {}", SOURCE, total, results.size(),
+                    sample.reportDir().toAbsolutePath());
             runs.finish(runId, total, stats.snapshot());
         } catch (RuntimeException e) {
             runs.fail(runId, e.toString());

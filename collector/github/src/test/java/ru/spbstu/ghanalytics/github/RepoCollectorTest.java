@@ -16,6 +16,9 @@ import ru.spbstu.ghanalytics.core.run.CheckpointStore;
 import ru.spbstu.ghanalytics.core.run.CollectionRunService;
 import ru.spbstu.ghanalytics.core.run.RunStats;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -247,6 +250,7 @@ class RepoCollectorTest {
         collector.collect(january(2, true));
 
         assertThat(countCalls).isEmpty();
+        assertThat(readReport("population-by-month.csv")).isEqualTo("month,population\n2024-01-01,777\n");
     }
 
     @Test
@@ -259,6 +263,8 @@ class RepoCollectorTest {
         assertThat(searchCalls).extracting(c -> c.get("q")).containsExactly(q(plan.get(0)), q(plan.get(1)), q(plan.get(2)));
         assertThat(searchCalls).allSatisfy(c -> assertThat(c).containsEntry("first", RepoCollector.PAGE_SIZE));
         verify(runs).finish(eq(7L), eq(6L), any());   // 2 + 2 + 2 >= 5: the last window is taken whole
+        assertThat(readReport("sample-windows.csv").lines().toList()).hasSize(1 + 3)
+                .element(1).isEqualTo("2024-01-01," + plan.get(0).from() + "," + plan.get(0).to() + ",2");
     }
 
     @Test
@@ -287,6 +293,9 @@ class RepoCollectorTest {
         assertThat(searchCalls).extracting(c -> c.get("q")).containsExactly(
                 "is:public stars:>=10 created:2024-01-01..2024-01-15", "is:public stars:>=10 created:2024-01-16..2024-01-31");
         assertThat(checkpoints.get(RepoCollector.SOURCE, "window:stars>=10:2024-01-01..2024-01-15")).contains("done:1");
+        assertThat(readReport("sample-windows.csv")).as("a whole month has no windows")
+                .isEqualTo("month,window_from,window_to,repos\n");
+        assertThat(readReport("population-by-month.csv")).isEqualTo("month,population\n2024-01-01,1550\n");
     }
 
     @Test
@@ -543,6 +552,14 @@ class RepoCollectorTest {
     }
 
     // ---- helpers ----
+
+    private String readReport(String name) {
+        try {
+            return Files.readString(reports.resolve(name));
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
 
     /** {@code created:2024-01-01..2024-01-15} gives 15. */
     private static int days(String qualifier) {
