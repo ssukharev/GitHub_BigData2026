@@ -25,6 +25,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Supplier;
+import java.util.function.ToIntFunction;
+import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -76,6 +78,60 @@ class RepoCollectorTest {
             return rows.size();
         });
         collector = new RepoCollector(client, rest, new RepoMapper(), repository, runs, stats, json, clock);
+    }
+
+    private static TimeWindow window(int i) {
+        Instant from = Instant.parse("2023-03-01T00:00:00Z").plusSeconds(600L * i);
+        return new TimeWindow(from, from.plusSeconds(599));
+    }
+
+    @Test
+    void walkStopsWhenQuotaIsReached() {
+        List<TimeWindow> order = IntStream.range(0, 10).mapToObj(RepoCollectorTest::window).toList();
+        int[] repos = {3, 0, 5, 4, 7, 1, 1, 1, 1, 1};
+        List<TimeWindow> asked = new ArrayList<>();
+        ToIntFunction<TimeWindow> fake = w -> {
+            asked.add(w);
+            return repos[order.indexOf(w)];
+        };
+
+        List<RepoCollector.WindowResult> taken = RepoCollector.walk(order, 8, fake);
+
+        assertThat(taken).extracting(RepoCollector.WindowResult::repos).containsExactly(3, 0, 5);   // 3 + 0 + 5 = 8 >= 8
+        assertThat(asked).containsExactlyElementsOf(order.subList(0, 3));                           // nothing asked after
+    }
+
+    @Test
+    void walkTakesWholeLastWindowEvenIfItOvershoots() {
+        List<RepoCollector.WindowResult> taken = RepoCollector.walk(List.of(window(0), window(1)), 3, w -> 10);
+
+        assertThat(taken).containsExactly(new RepoCollector.WindowResult(window(0), 10));
+    }
+
+    @Test
+    void walkTakesEverythingWhenQuotaIsUnreachable() {
+        List<TimeWindow> order = IntStream.range(0, 4).mapToObj(RepoCollectorTest::window).toList();
+
+        List<RepoCollector.WindowResult> taken = RepoCollector.walk(order, 100, w -> 1);
+
+        assertThat(taken).extracting(RepoCollector.WindowResult::window).containsExactlyElementsOf(order);
+    }
+
+    @Test
+    void walkWithZeroQuotaAsksNothing() {
+        assertThat(RepoCollector.walk(List.of(window(0)), 0, w -> {
+            throw new AssertionError("no window may be asked");
+        })).isEmpty();
+    }
+
+    @Test
+    void keysCarryTheParametersThatChangeTheirContent() {
+        assertThat(RepoCollector.windowKey("created:2023-03-15T10:00:00Z..2023-03-15T10:09:59Z", 10))
+                .isEqualTo("window:stars>=10:2023-03-15T10:00:00Z..2023-03-15T10:09:59Z");
+        assertThat(RepoCollector.windowKey("created:2023-03-15..2023-03-15", 5000))
+                .isEqualTo("window:stars>=5000:2023-03-15..2023-03-15");
+        assertThat(RepoCollector.planKey(new CollectionContext(LocalDate.of(2018, 1, 1), LocalDate.of(2025, 12, 31),
+                10, 5000, true), 42)).isEqualTo("plan:2018-01-01..2025-12-31:stars>=10:limit=5000:seed=42");
     }
 
     @Test
