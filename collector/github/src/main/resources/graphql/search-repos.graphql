@@ -1,6 +1,6 @@
 # One page of repository search. Variables: q (search string), first (page size), cursor (null for page 1).
 # RepoFields is heavy (file trees, five issue and PR counters per node): it costs 1 point per page,
-# but GitHub cuts a query off after 10 s, so keep first at 10 or less (25 already gives 502).
+# but GitHub cuts a query off after 10 s, so keep first at 20 or less (20 take about 7 s, 25 give 502).
 query SearchRepos($q: String!, $first: Int!, $cursor: String) {
   rateLimit { limit cost remaining resetAt }
   search(query: $q, type: REPOSITORY, first: $first, after: $cursor) {
