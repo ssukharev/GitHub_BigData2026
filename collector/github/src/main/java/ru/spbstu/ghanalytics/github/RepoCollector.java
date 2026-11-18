@@ -24,6 +24,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.ToIntFunction;
@@ -165,7 +166,7 @@ public class RepoCollector implements Collector {
                 results.add(result);
                 log.info("month {}/{} {}: population {}, quota {}, sampled {} in {} windows, weight {}",
                         i + 1, strata.size(), monthKey(stratum), result.population(), result.quota(), result.sampled(),
-                        result.windows().size(), "%.1f".formatted(result.weight()));
+                        result.windows().size(), String.format(Locale.ROOT, "%.1f", result.weight()));
             }
             fillMissingReadmes(ctx);
             SampleReport.write(sample.reportDir(), results);
