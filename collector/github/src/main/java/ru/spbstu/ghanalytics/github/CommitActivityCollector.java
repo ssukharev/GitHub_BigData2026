@@ -40,7 +40,7 @@ import java.util.regex.Pattern;
  * <pre>
  * repositories = findRefs(--from, --to, --min-stars, --limit) by id; --resume drops those with a checkpoint
  * round 1..MAX_ROUNDS over the queue:
- *   200 -> weekly rows; stats_truncated = (100 authors); contributors_total from
+ *   200 -> weekly rows; stats_truncated = (100 or about 500 authors); contributors_total from
  *          /contributors?per_page=1&amp;anon=1 (one request, not in every round); checkpoint done ([] gives empty)
  *   202 -> GitHub is computing the statistics: into the queue of the next round, no checkpoint
  *   204 -> no rows, contributors_total as for 200, checkpoint empty;   404 -> checkpoint missing
@@ -53,10 +53,14 @@ import java.util.regex.Pattern;
  * into a Jackson tree and forgotten; it is never stored in {@code raw.github_responses} or logged
  * (pallets/flask: 3.1 MB).
  * <p>
- * The answer has at most {@link #MAX_AUTHORS} authors, the most active ones: with exactly that many it
- * is most likely cut, and the weekly numbers of such a repository are too low (pallets/flask: 2931 of
- * 5566 commits). The rows are written all the same (they are right for the top 100) and the repository
- * is marked {@code stats_truncated}; {@code contributors_total} tells how many people there are in all.
+ * The answer keeps only the most active authors, and the cap is not the same for every repository:
+ * exactly {@link #SMALL_CAP} for some (pallets/flask), up to {@link #LARGE_CAP} for others
+ * (NVIDIA/tensorflow 500, llvm/llvm-project-release-prs 499, AU-14/ColonialMarinesUniverse 497), and
+ * answers in between happen (tchapgouv/tchap-ios 164 of 400 contributors). An answer of exactly the
+ * small cap, or within {@link #LARGE_CAP_MARGIN} of the large one, is most likely cut, and the weekly
+ * numbers of such a repository are too low (pallets/flask: 2931 of 5566 commits). The rows are written
+ * all the same (they are right for the authors in the answer) and the repository is marked
+ * {@code stats_truncated}; {@code contributors_total} tells how many people there are in all.
  * <p>
  * The statistics count only authors linked to a GitHub account: commits from an e-mail that belongs
  * to no account are left out. A repository where every commit is such gets 204, the status the
@@ -71,7 +75,7 @@ import java.util.regex.Pattern;
 public class CommitActivityCollector implements Collector {
 
     public static final String SOURCE = "github-commits";
-    /** {@link RunStats} key: answers with exactly {@link #MAX_AUTHORS} authors, marked {@code stats_truncated}. */
+    /** {@link RunStats} key: answers {@link #isTruncated} takes for cut, marked {@code stats_truncated}. */
     public static final String TRUNCATED_REPOS = "truncated_repos";
     /** {@link RunStats} key: repositories still answered 202 after the last round; they have no checkpoint. */
     public static final String PENDING_REPOS = "pending_repos";
@@ -89,8 +93,11 @@ public class CommitActivityCollector implements Collector {
 
     static final int MAX_ROUNDS = 4;
     static final Duration MIN_ROUND = Duration.ofSeconds(30);
-    /** {@code /stats/contributors} gives no more authors than this. */
-    static final int MAX_AUTHORS = 100;
+    /** {@code /stats/contributors} of some repositories gives exactly this many authors when it cuts. */
+    static final int SMALL_CAP = 100;
+    /** ... and of others no more than this many; a cut answer here is 497-500 long. */
+    static final int LARGE_CAP = 500;
+    static final int LARGE_CAP_MARGIN = 10;
     /** A line of progress every this many repositories of a round. */
     static final int PROGRESS_EVERY = 100;
 
@@ -261,9 +268,10 @@ public class CommitActivityCollector implements Collector {
         return rows;
     }
 
-    /** Exactly {@link #MAX_AUTHORS} authors in the answer: it is most likely cut. */
+    /** Exactly {@link #SMALL_CAP} authors, or {@link #LARGE_CAP} less at most {@link #LARGE_CAP_MARGIN}: most likely cut. */
     static boolean isTruncated(JsonNode contributors) {
-        return contributors.size() == MAX_AUTHORS;
+        int authors = contributors.size();
+        return authors == SMALL_CAP || authors >= LARGE_CAP - LARGE_CAP_MARGIN;
     }
 
     /** The number of the last page from a {@code Link} header ({@code rel="last"}); null or no such link: empty. */

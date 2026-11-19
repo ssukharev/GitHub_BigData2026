@@ -452,6 +452,17 @@ class CommitActivityCollectorTest {
         assertThat(CommitActivityCollector.isTruncated(json.readTree("[]"))).isFalse();
     }
 
+    /** Full run 19.11.2026: NVIDIA/tensorflow 500 authors, llvm/llvm-project-release-prs 499, AU-14/ColonialMarinesUniverse 497. */
+    @Test
+    void anAnswerNearFiveHundredAuthorsIsCutTooButOneInBetweenIsNot() throws IOException {
+        assertThat(CommitActivityCollector.isTruncated(json.readTree(authors(101)))).isFalse();
+        assertThat(CommitActivityCollector.isTruncated(json.readTree(authors(440)))).as("komikku-app/komikku").isFalse();
+        assertThat(CommitActivityCollector.isTruncated(json.readTree(authors(489)))).isFalse();
+        assertThat(CommitActivityCollector.isTruncated(json.readTree(authors(490)))).isTrue();
+        assertThat(CommitActivityCollector.isTruncated(json.readTree(authors(497)))).isTrue();
+        assertThat(CommitActivityCollector.isTruncated(json.readTree(authors(500)))).isTrue();
+    }
+
     @Test
     void lastPageIsTakenFromTheLastLinkOnly() {
         assertThat(CommitActivityCollector.lastPage(FLASK_LINK)).hasValue(864);
