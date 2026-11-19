@@ -39,12 +39,14 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -63,8 +65,15 @@ class CommitActivityCollectorTest {
     private static final LocalDate JAN_10 = LocalDate.of(2021, 1, 10);
     private static final CollectionContext MARCH = new CollectionContext(LocalDate.of(2023, 3, 1),
             LocalDate.of(2023, 3, 31), 10, 30, false);
+    /** The Link header of {@code pallets/flask/contributors?per_page=1&anon=1}, 19.11.2026. */
+    private static final String FLASK_LINK = "<https://api.github.com/repositories/596892/contributors?per_page=1&anon=1&page=2>; "
+            + "rel=\"next\", <https://api.github.com/repositories/596892/contributors?per_page=1&anon=1&page=864>; rel=\"last\"";
+    private static final String NEXT_ONLY = "<https://api.github.com/repositories/596892/contributors?per_page=1&anon=1&page=2>; "
+            + "rel=\"next\"";
     private static final CollectionContext MARCH_RESUME = new CollectionContext(LocalDate.of(2023, 3, 1),
             LocalDate.of(2023, 3, 31), 10, 30, true);
+
+    private static final String CONTRIBUTORS_QUERY = "/contributors?per_page=1&anon=1";
 
     private final ObjectMapper json = JsonMapper.builder().findAndAddModules().build();
     private final GitHubRestClient rest = mock(GitHubRestClient.class);
@@ -75,11 +84,14 @@ class CommitActivityCollectorTest {
     private final TestClock clock = new TestClock(Instant.parse("2026-11-19T09:00:00Z"));
     private final List<Duration> sleeps = new ArrayList<>();
 
-    /** Writes in order: "weeks N" and "checkpoint key = value". */
+    /** Writes in order: "weeks N", "contributors total truncated" and "checkpoint key = value". */
     private final List<String> events = new ArrayList<>();
     private final RepoCollectorTest.InMemoryCheckpoints checkpoints = new RepoCollectorTest.InMemoryCheckpoints(events);
 
-    /** Answers by request path, in order; the last one repeats. A RuntimeException is thrown. */
+    /**
+     * Answers by request path, in order; the last one repeats. A RuntimeException is thrown.
+     * A contributors request without answers gets one contributor and no Link.
+     */
     private final Map<String, Deque<Object>> answers = new HashMap<>();
     private final List<String> asked = new ArrayList<>();
     /** How long one request takes on the test clock. */
@@ -95,6 +107,9 @@ class CommitActivityCollectorTest {
             asked.add(path);
             clock.advance(perRequest);
             Deque<Object> queue = answers.get(path);
+            if (queue == null && path.endsWith(CONTRIBUTORS_QUERY)) {
+                return reply(200, "[{\"login\": \"someone\", \"contributions\": 3}]");
+            }
             if (queue == null || queue.isEmpty()) {
                 throw new AssertionError("unexpected request " + path);
             }
@@ -109,6 +124,8 @@ class CommitActivityCollectorTest {
             events.add("weeks " + size);
             return size;
         });
+        doAnswer(invocation -> events.add("contributors " + invocation.getArgument(1) + " " + invocation.getArgument(2)))
+                .when(repository).updateContributorStats(anyLong(), any(), anyBoolean());
         collector = new CommitActivityCollector(rest, repository, commits, checkpoints, runs, stats, json, clock, d -> {
             sleeps.add(d);
             clock.advance(d);
@@ -171,7 +188,7 @@ class CommitActivityCollectorTest {
 
         collector.collect(MARCH);
 
-        assertThat(events).containsExactly("weeks 2", "checkpoint 1 = done");
+        assertThat(events).containsExactly("weeks 2", "contributors 1 false", "checkpoint 1 = done");
         verify(commits).upsertWeeks(List.of(new WeekRow(1, JAN_3, 5, 2), new WeekRow(1, JAN_10, 4, 1)));
         verify(runs).finish(eq(9L), eq(2L), any());
         assertThat(stats.snapshot()).containsEntry(CommitActivityCollector.DONE_REPOS, 1L);
@@ -184,7 +201,8 @@ class CommitActivityCollectorTest {
 
         collector.collect(MARCH);
 
-        assertThat(events).containsExactly("checkpoint 1 = empty");
+        assertThat(events).containsExactly("contributors 0 false", "checkpoint 1 = empty");
+        assertThat(asked).as("no contributors request: nobody committed").containsExactly(statsPath("a/empty"));
         verify(commits, never()).upsertWeeks(anyList());
         assertThat(stats.snapshot()).containsEntry(CommitActivityCollector.EMPTY_REPOS, 1L);
     }
@@ -193,10 +211,11 @@ class CommitActivityCollectorTest {
     void anEmptyArrayIsEmptyToo() {
         repos(ref(1, "a/none"));
         stats("a/none", reply(200, "[]"));
+        contributors("a/none", reply(200, "[]"));
 
         collector.collect(MARCH);
 
-        assertThat(events).containsExactly("weeks 0", "checkpoint 1 = empty");
+        assertThat(events).containsExactly("weeks 0", "contributors 0 false", "checkpoint 1 = empty");
     }
 
     @Test
@@ -207,6 +226,7 @@ class CommitActivityCollectorTest {
         collector.collect(MARCH);
 
         assertThat(events).containsExactly("checkpoint 1 = missing");
+        assertThat(asked).containsExactly(statsPath("a/gone"));
         assertThat(stats.snapshot()).containsEntry(CommitActivityCollector.MISSING_REPOS, 1L);
     }
 
@@ -219,9 +239,9 @@ class CommitActivityCollectorTest {
 
         collector.collect(MARCH);
 
-        assertThat(asked).containsExactly(statsPath("a/one"), statsPath("a/one"));
+        assertThat(asked).containsExactly(statsPath("a/one"), statsPath("a/one"), contributorsPath("a/one"));
         assertThat(sleeps).containsExactly(CommitActivityCollector.MIN_ROUND);
-        assertThat(events).containsExactly("weeks 2", "checkpoint 1 = done");
+        assertThat(events).containsExactly("weeks 2", "contributors 1 false", "checkpoint 1 = done");
         assertThat(stats.snapshot()).containsEntry(CommitActivityCollector.ROUNDS, 2L)
                 .containsEntry(CommitActivityCollector.ROUND_WAIT_S, 30L)
                 .containsEntry(CommitActivityCollector.PENDING_REPOS, 0L);
@@ -237,9 +257,9 @@ class CommitActivityCollectorTest {
 
         collector.collect(MARCH);
 
-        assertThat(sleeps).as("round 1 took 60 s").isEmpty();
-        assertThat(asked).containsExactly(statsPath("a/one"), statsPath("b/two"), statsPath("c/three"),
-                statsPath("a/one"), statsPath("c/three"));
+        assertThat(sleeps).as("round 1 took 80 s").isEmpty();
+        assertThat(asked).containsExactly(statsPath("a/one"), statsPath("b/two"), contributorsPath("b/two"),
+                statsPath("c/three"), statsPath("a/one"), contributorsPath("a/one"), statsPath("c/three"));
         assertThat(checkpoints.get(CommitActivityCollector.SOURCE, "3")).contains("empty");
     }
 
@@ -290,7 +310,7 @@ class CommitActivityCollectorTest {
 
         collector.collect(MARCH);
 
-        assertThat(events).containsExactly("weeks 2", "checkpoint 2 = done");
+        assertThat(events).containsExactly("weeks 2", "contributors 1 false", "checkpoint 2 = done");
         assertThat(stats.snapshot()).containsEntry(CommitActivityCollector.FAILED_REPOS, 1L);
         assertThat(asked).as("not asked again in the same run").containsOnlyOnce(statsPath("a/broken"));
         verify(runs).finish(eq(9L), eq(2L), any());
@@ -366,7 +386,7 @@ class CommitActivityCollectorTest {
 
         collector.collect(MARCH_RESUME);
 
-        assertThat(asked).containsExactly(statsPath("c/three"));
+        assertThat(asked).containsExactly(statsPath("c/three"), contributorsPath("c/three"));
         assertThat(stats.snapshot()).containsEntry(CommitActivityCollector.RESUMED_REPOS, 2L);
     }
 
@@ -378,7 +398,7 @@ class CommitActivityCollectorTest {
 
         collector.collect(MARCH);
 
-        assertThat(asked).containsExactly(statsPath("a/one"));
+        assertThat(asked).containsExactly(statsPath("a/one"), contributorsPath("a/one"));
         assertThat(checkpoints.get(CommitActivityCollector.SOURCE, "1")).contains("done");
     }
 
@@ -395,6 +415,7 @@ class CommitActivityCollectorTest {
         ArgumentCaptor<Map<String, ?>> counters = ArgumentCaptor.forClass(Map.class);
         verify(runs).finish(eq(9L), eq(2L), counters.capture());
         assertThat((Map<String, Object>) counters.getValue()).containsEntry(CommitActivityCollector.PENDING_REPOS, 0L)
+                .containsEntry(CommitActivityCollector.TRUNCATED_REPOS, 0L)
                 .containsEntry(CommitActivityCollector.DONE_REPOS, 1L)
                 .containsEntry(CommitActivityCollector.ROUNDS, 1L);
     }
@@ -407,6 +428,105 @@ class CommitActivityCollectorTest {
 
         assertThat(asked).isEmpty();
         verify(runs).finish(eq(9L), eq(0L), any());
+    }
+
+    // ---- truncation and contributors_total ----
+
+    @Test
+    void ninetyNineAuthorsAreAFullAnswerAndOneHundredACutOne() throws IOException {
+        assertThat(CommitActivityCollector.isTruncated(json.readTree(authors(99)))).isFalse();
+        assertThat(CommitActivityCollector.isTruncated(json.readTree(authors(100)))).isTrue();
+        assertThat(CommitActivityCollector.isTruncated(json.readTree("[]"))).isFalse();
+    }
+
+    @Test
+    void lastPageIsTakenFromTheLastLinkOnly() {
+        assertThat(CommitActivityCollector.lastPage(FLASK_LINK)).hasValue(864);
+        assertThat(CommitActivityCollector.lastPage(NEXT_ONLY)).isEmpty();
+        assertThat(CommitActivityCollector.lastPage(null)).isEmpty();
+        assertThat(CommitActivityCollector.lastPage("<https://api.github.com/repositories/1/contributors?page=7&per_page=1&anon=1>; "
+                + "rel=\"last\"")).as("page before per_page").hasValue(7);
+    }
+
+    @Test
+    void perPageOneIsNotTakenForPageOne() {
+        assertThat(CommitActivityCollector.lastPage("<https://api.github.com/repositories/1/contributors?per_page=1&anon=1>; "
+                + "rel=\"last\"")).isEmpty();
+        assertThat(CommitActivityCollector.lastPage("<https://api.github.com/repositories/1/contributors?per_page=1&anon=1&page=12>; "
+                + "rel=\"last\"")).hasValue(12);
+    }
+
+    @Test
+    void contributorsTotalIsTheLastPageOfLinkOrTheBodyLength() {
+        contributors("a/flask", reply(200, "[{\"login\": \"davidism\"}]", "link", FLASK_LINK));
+        contributors("b/one", reply(200, "[{\"login\": \"afwfv\"}]"));
+        contributors("c/none", reply(200, "[]"));
+        contributors("d/empty", reply(204, ""));
+        contributors("e/gone", reply(404, "{\"message\": \"Not Found\"}"));
+        contributors("f/linux", new HttpStatusException(403,
+                "HTTP 403: The history or contributor list is too large to list contributors for this repository via the API."));
+
+        assertThat(collector.contributorsTotal("a/flask")).as("not the body length 1").isEqualTo(864);
+        assertThat(collector.contributorsTotal("b/one")).isEqualTo(1);
+        assertThat(collector.contributorsTotal("c/none")).isZero();
+        assertThat(collector.contributorsTotal("d/empty")).isZero();
+        assertThat(collector.contributorsTotal("e/gone")).isNull();
+        assertThat(collector.contributorsTotal("f/linux")).isNull();
+    }
+
+    @Test
+    void otherErrorsOfTheContributorsRequestGoOut() {
+        contributors("a/one", new HttpStatusException(451, "HTTP 451: Repository access blocked"));
+
+        assertThatThrownBy(() -> collector.contributorsTotal("a/one")).isInstanceOf(HttpStatusException.class);
+    }
+
+    @Test
+    void oneHundredAuthorsMarkTheRepositoryTruncatedAndItsRowsAreStillWritten() {
+        repos(ref(1, "pallets/flask"));
+        stats("pallets/flask", reply(200, authors(100)));
+        contributors("pallets/flask", reply(200, "[{\"login\": \"davidism\"}]", "Link", FLASK_LINK));
+
+        collector.collect(MARCH);
+
+        assertThat(events).containsExactly("weeks 1", "contributors 864 true", "checkpoint 1 = done");
+        verify(commits).upsertWeeks(List.of(new WeekRow(1, JAN_3, 100, 100)));
+        assertThat(stats.snapshot()).containsEntry(CommitActivityCollector.TRUNCATED_REPOS, 1L);
+    }
+
+    @Test
+    void contributorsAreAskedOnceAfterTheOkNotInEveryRound() throws IOException {
+        repos(ref(1, "a/one"));
+        stats("a/one", reply(202, "{}"), reply(202, "{}"), reply(200, fixtureText()));
+
+        collector.collect(MARCH);
+
+        assertThat(asked).filteredOn(path -> path.endsWith(CONTRIBUTORS_QUERY)).containsExactly(contributorsPath("a/one"));
+        assertThat(asked.getLast()).isEqualTo(contributorsPath("a/one"));
+    }
+
+    @Test
+    void aContributorListTooLargeLeavesTheTotalUnknownAndTheRepositoryDone() throws IOException {
+        repos(ref(1, "torvalds/linux"));
+        stats("torvalds/linux", reply(200, fixtureText()));
+        contributors("torvalds/linux", new HttpStatusException(403, "HTTP 403: The history or contributor list is too large"));
+
+        collector.collect(MARCH);
+
+        assertThat(events).containsExactly("weeks 2", "contributors null false", "checkpoint 1 = done");
+        assertThat(stats.snapshot()).doesNotContainKey(CommitActivityCollector.FAILED_REPOS);
+    }
+
+    @Test
+    void aFailedContributorsRequestLeavesTheRepositoryForTheNextRun() throws IOException {
+        repos(ref(1, "a/one"));
+        stats("a/one", reply(200, fixtureText()));
+        contributors("a/one", new RetryableHttpException(502, "HTTP 502", null));
+
+        collector.collect(MARCH);
+
+        assertThat(events).as("the weeks are written, the repository has no checkpoint").containsExactly("weeks 2");
+        assertThat(stats.snapshot()).containsEntry(CommitActivityCollector.FAILED_REPOS, 1L);
     }
 
     // ---- helpers ----
@@ -435,6 +555,24 @@ class CommitActivityCollectorTest {
 
     private static String statsPath(String fullName) {
         return "/repos/" + fullName + "/stats/contributors";
+    }
+
+    private void contributors(String fullName, Object... replies) {
+        answers.put(contributorsPath(fullName), new ArrayDeque<>(Arrays.asList(replies)));
+    }
+
+    private static String contributorsPath(String fullName) {
+        return "/repos/" + fullName + CONTRIBUTORS_QUERY;
+    }
+
+    /** A {@code /stats/contributors} answer of {@code n} authors with one commit each in the week of 2021-01-03. */
+    private static String authors(int n) {
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < n; i++) {
+            sb.append(i == 0 ? "" : ",").append("{\"author\": {\"login\": \"a").append(i)
+                    .append("\"}, \"total\": 1, \"weeks\": [{\"w\": 1609632000, \"a\": 1, \"d\": 0, \"c\": 1}]}");
+        }
+        return sb.append("]").toString();
     }
 
     /** A response with headers given as name, value, name, value. */

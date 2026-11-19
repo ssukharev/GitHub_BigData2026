@@ -28,7 +28,10 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.OptionalInt;
 import java.util.TreeMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * {@code github-commits}: weekly commits and authors of the repositories in {@code core.repos}
@@ -37,9 +40,10 @@ import java.util.TreeMap;
  * <pre>
  * repositories = findRefs(--from, --to, --min-stars, --limit) by id; --resume drops those with a checkpoint
  * round 1..MAX_ROUNDS over the queue:
- *   200 -> weekly rows, checkpoint done ([] gives empty)
+ *   200 -> weekly rows; stats_truncated = (100 authors); contributors_total from
+ *          /contributors?per_page=1&amp;anon=1 (one request, only after a 200); checkpoint done ([] gives empty)
  *   202 -> GitHub is computing the statistics: into the queue of the next round, no checkpoint
- *   204 -> checkpoint empty;   404 -> checkpoint missing
+ *   204 -> contributors_total = 0, checkpoint empty;   404 -> checkpoint missing
  *   an error after all retries -> WARN, no checkpoint: the next run asks again
  *   a round shorter than MIN_ROUND waits for the rest of it before the next one
  * still 202 after the last round -> counted in pending_repos, no checkpoint
@@ -49,6 +53,11 @@ import java.util.TreeMap;
  * into a Jackson tree and forgotten; it is never stored in {@code raw.github_responses} or logged
  * (pallets/flask: 3.1 MB).
  * <p>
+ * The answer has at most {@link #MAX_AUTHORS} authors, the most active ones: with exactly that many it
+ * is most likely cut, and the weekly numbers of such a repository are too low (pallets/flask: 2931 of
+ * 5566 commits). The rows are written all the same (they are right for the top 100) and the repository
+ * is marked {@code stats_truncated}; {@code contributors_total} tells how many people there are in all.
+ * <p>
  * Checkpoints: source {@code github-commits}, key the repository id, value {@code done}, {@code empty}
  * or {@code missing}; written after the rows, read only with {@code --resume}.
  */
@@ -56,6 +65,8 @@ import java.util.TreeMap;
 public class CommitActivityCollector implements Collector {
 
     public static final String SOURCE = "github-commits";
+    /** {@link RunStats} key: answers with exactly {@link #MAX_AUTHORS} authors, marked {@code stats_truncated}. */
+    public static final String TRUNCATED_REPOS = "truncated_repos";
     /** {@link RunStats} key: repositories still answered 202 after the last round; they have no checkpoint. */
     public static final String PENDING_REPOS = "pending_repos";
     /** {@link RunStats} keys: checkpoints {@code done}, {@code empty} and {@code missing} written in this run. */
@@ -72,6 +83,8 @@ public class CommitActivityCollector implements Collector {
 
     static final int MAX_ROUNDS = 4;
     static final Duration MIN_ROUND = Duration.ofSeconds(30);
+    /** {@code /stats/contributors} gives no more authors than this. */
+    static final int MAX_AUTHORS = 100;
     /** A line of progress every this many repositories of a round. */
     static final int PROGRESS_EVERY = 100;
 
@@ -80,6 +93,8 @@ public class CommitActivityCollector implements Collector {
     static final String MISSING = "missing";
 
     private static final Logger log = LoggerFactory.getLogger(CommitActivityCollector.class);
+    /** {@code [?&]} before {@code page=}: the {@code _page=1} of {@code per_page=1} does not match. */
+    private static final Pattern LAST_PAGE = Pattern.compile("<[^>]*[?&]page=(\\d+)[^>]*>;\\s*rel=\"last\"");
 
     enum Outcome { DONE, EMPTY, MISSING, PENDING }
 
@@ -128,6 +143,7 @@ public class CommitActivityCollector implements Collector {
     public void collect(CollectionContext ctx) {
         long runId = runs.start(SOURCE, ctx.toParams());
         try {
+            stats.add(TRUNCATED_REPOS, 0);   // in the journal also when there are none
             List<RepoRef> found = repository.findRefs(ctx);
             List<RepoRef> queue = ctx.resume() ? withoutCheckpoint(found) : found;
             log.info("{}: {} repositories of {}..{} with stars >= {}{}, {} to ask", SOURCE, found.size(), ctx.from(),
@@ -174,9 +190,10 @@ public class CommitActivityCollector implements Collector {
                 log.info("without statistics (404 or an error): {}", missing);
             }
             Map<String, Long> counters = stats.snapshot();
-            log.info("{} finished: {} weekly rows; done {}, empty {}, missing {}, failed {}, pending {}", SOURCE, rows,
-                    counters.getOrDefault(DONE_REPOS, 0L), counters.getOrDefault(EMPTY_REPOS, 0L),
-                    counters.getOrDefault(MISSING_REPOS, 0L), counters.getOrDefault(FAILED_REPOS, 0L), queue.size());
+            log.info("{} finished: {} weekly rows; done {}, empty {}, missing {}, failed {}, pending {}; truncated {}",
+                    SOURCE, rows, counters.getOrDefault(DONE_REPOS, 0L), counters.getOrDefault(EMPTY_REPOS, 0L),
+                    counters.getOrDefault(MISSING_REPOS, 0L), counters.getOrDefault(FAILED_REPOS, 0L), queue.size(),
+                    counters.getOrDefault(TRUNCATED_REPOS, 0L));
             runs.finish(runId, rows, counters);
         } catch (RuntimeException e) {
             runs.fail(runId, e.toString());
@@ -197,7 +214,7 @@ public class CommitActivityCollector implements Collector {
             return switch (status) {
                 case 200 -> stored(repo, parse(repo, response.body()));
                 case 202 -> new Result(Outcome.PENDING, 0);
-                case 204 -> finished(repo, Outcome.EMPTY, 0);
+                case 204 -> noContent(repo);
                 case 404 -> finished(repo, Outcome.MISSING, 0);
                 default -> throw new HttpStatusException(status, "unexpected HTTP " + status + " of /stats/contributors");
             };
@@ -238,17 +255,78 @@ public class CommitActivityCollector implements Collector {
         return rows;
     }
 
+    /** Exactly {@link #MAX_AUTHORS} authors in the answer: it is most likely cut. */
+    static boolean isTruncated(JsonNode contributors) {
+        return contributors.size() == MAX_AUTHORS;
+    }
+
+    /** The number of the last page from a {@code Link} header ({@code rel="last"}); null or no such link: empty. */
+    static OptionalInt lastPage(String linkHeader) {
+        if (linkHeader == null) {
+            return OptionalInt.empty();
+        }
+        Matcher m = LAST_PAGE.matcher(linkHeader);
+        return m.find() ? OptionalInt.of(Integer.parseInt(m.group(1))) : OptionalInt.empty();
+    }
+
+    /**
+     * Every contributor of the repository, anonymous ones included:
+     * {@code GET /repos/{fullName}/contributors?per_page=1&anon=1}. With one per page the number of
+     * pages is the number of contributors: 200 gives the last page of {@code Link}, or the length of
+     * the body (0 or 1) when there is one page and no {@code Link}; 204 gives 0; 403 ("the contributor
+     * list is too large", torvalds/linux) and 404 give null, "unknown". 403 here is not a rate limit:
+     * the client throws it at once, without retries.
+     */
+    Integer contributorsTotal(String fullName) {
+        try {
+            HttpResponse<String> response = rest.get("/repos/" + fullName + "/contributors?per_page=1&anon=1",
+                    GitHubRestClient.ACCEPT_JSON);
+            return switch (response.statusCode()) {
+                case 200 -> {
+                    OptionalInt last = lastPage(response.headers().firstValue("link").orElse(null));
+                    yield last.isPresent() ? last.getAsInt() : bodyLength(fullName, response.body());
+                }
+                case 204 -> 0;
+                default -> null;   // 404: the repository is gone
+            };
+        } catch (HttpStatusException e) {
+            if (e.statusCode() == 403) {
+                log.info("{}: contributor list too large for the API, contributors_total stays unknown", fullName);
+                return null;
+            }
+            throw e;
+        }
+    }
+
     /** The checkpoint key of a repository: its id, which survives a rename. */
     static String key(RepoRef repo) {
         return String.valueOf(repo.id());
     }
 
-    /** Rows first, the checkpoint last: a crash in between repeats the repository, the upsert makes it harmless. */
+    /**
+     * Rows first, then the contributor numbers, the checkpoint last: a crash in between repeats the
+     * repository, and the upserts make it harmless.
+     */
     private Result stored(RepoRef repo, JsonNode contributors) {
         List<WeekRow> rows = aggregate(repo.id(), contributors);
         commits.upsertWeeks(rows);
-        log.debug("{}: {} authors, {} weeks", repo.fullName(), contributors.size(), rows.size());
+        boolean truncated = isTruncated(contributors);
+        Integer total = contributorsTotal(repo.fullName());
+        repository.updateContributorStats(repo.id(), total, truncated);
+        if (truncated) {
+            stats.inc(TRUNCATED_REPOS);
+            log.info("{}: {} authors in the answer, the statistics are cut (stats_truncated), contributors_total {}",
+                    repo.fullName(), contributors.size(), total);
+        }
+        log.debug("{}: {} authors, {} weeks, contributors_total {}", repo.fullName(), contributors.size(), rows.size(),
+                total);
         return finished(repo, contributors.isEmpty() ? Outcome.EMPTY : Outcome.DONE, rows.size());
+    }
+
+    /** 204, no content (an empty repository): nobody committed, which is 0 contributors, not "unknown". */
+    private Result noContent(RepoRef repo) {
+        repository.updateContributorStats(repo.id(), 0, false);
+        return finished(repo, Outcome.EMPTY, 0);
     }
 
     /** The checkpoint of a finished repository and its counter; a pending one never gets here. */
@@ -290,6 +368,15 @@ public class CommitActivityCollector implements Collector {
                     + tree.getNodeType() + ", not an array");
         }
         return tree;
+    }
+
+    /** The length of a JSON array body; an empty body is 0. */
+    private int bodyLength(String fullName, String body) {
+        try {
+            return objectMapper.readTree(body == null ? "" : body).size();
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("/contributors of " + fullName + " is not JSON: " + e.getOriginalMessage(), e);
+        }
     }
 
     private void pause(Duration wait) {

@@ -123,6 +123,31 @@ class RepoRepositoryIT {
     }
 
     @Test
+    void contributorStatsKeepAKnownTotalWhenTheNewOneIsUnknown() {
+        repository.upsertRepos(List.of(full(1, "a/one", 10, null, T1), full(2, "b/two", 20, null, T1)));
+
+        repository.updateContributorStats(1, 864, true);
+        repository.updateContributorStats(1, null, false);
+
+        Map<String, Object> row = jdbc.queryForMap("SELECT contributors_total, stats_truncated FROM core.repos WHERE id = 1");
+        assertThat(row).containsEntry("contributors_total", 864).containsEntry("stats_truncated", false);
+        assertThat(jdbc.queryForMap("SELECT contributors_total, stats_truncated FROM core.repos WHERE id = 2").values())
+                .as("other repositories are not touched").containsOnlyNulls();
+    }
+
+    @Test
+    void contributorStatsOfAnUnknownTotalStayNull() {
+        repository.upsertRepos(List.of(full(1, "a/one", 10, null, T1)));
+
+        repository.updateContributorStats(1, null, false);
+        repository.updateContributorStats(99, 5, false);   // not in the table: nothing happens
+
+        Map<String, Object> row = jdbc.queryForMap("SELECT contributors_total, stats_truncated FROM core.repos WHERE id = 1");
+        assertThat(row.get("contributors_total")).isNull();
+        assertThat(row).containsEntry("stats_truncated", false);
+    }
+
+    @Test
     void upsertOverARowOfThePrototype() {
         jdbc.update("""
                 INSERT INTO core.repos (id, node_id, full_name, owner_type, created_at, stars, forks, is_fork, is_archived)

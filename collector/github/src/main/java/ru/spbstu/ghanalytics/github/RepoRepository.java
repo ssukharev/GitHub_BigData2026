@@ -85,6 +85,11 @@ public class RepoRepository {
             ORDER BY r.id
             """;
 
+    private static final String UPDATE_CONTRIBUTOR_STATS = """
+            UPDATE core.repos SET contributors_total = COALESCE(?, contributors_total), stats_truncated = ?
+            WHERE id = ?
+            """;
+
     /** {@code LIMIT NULL} in PostgreSQL is no limit at all. */
     private static final String BY_CONTEXT = """
             SELECT id, full_name, is_empty FROM core.repos
@@ -128,6 +133,22 @@ public class RepoRepository {
         return jdbc.query(BY_CONTEXT, REF,
                 startOf(ctx.from()), startOf(ctx.to().plusDays(1)), ctx.minStars(),
                 new SqlParameterValue(Types.INTEGER, ctx.hasLimit() ? ctx.limit() : null));
+    }
+
+    /**
+     * Contributor numbers from the commit activity collector. A null total ("unknown", for example
+     * 403 on a giant repository) keeps the number already known; the truncation mark is always the
+     * fresh value. A repository that is not in the table is ignored.
+     *
+     * @param contributorsTotal every contributor, anonymous ones included; null if unknown
+     * @param statsTruncated    the {@code /stats/contributors} answer had the maximum of 100 authors
+     */
+    public void updateContributorStats(long repoId, Integer contributorsTotal, boolean statsTruncated) {
+        jdbc.update(UPDATE_CONTRIBUTOR_STATS, ps -> {
+            ps.setObject(1, contributorsTotal, Types.INTEGER);   // null needs its type
+            ps.setBoolean(2, statsTruncated);
+            ps.setLong(3, repoId);
+        });
     }
 
     /** Upsert into {@code core.repos} by {@code id}. Returns the number of rows given. */
