@@ -9,6 +9,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import ru.spbstu.ghanalytics.core.CollectionContext;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
@@ -230,6 +231,28 @@ class RepoRepositoryIT {
                 .as("the first second of the next day is not in the period").isEmpty();
         assertThat(repository.findWithoutReadme(LocalDate.of(2024, 1, 14), LocalDate.of(2024, 1, 14)))
                 .extracting(RepoRepository.RepoRef::id).containsExactly(3L);
+    }
+
+    @Test
+    void findsRefsOfThePeriodWithEnoughStarsByIdUpToTheLimit() {
+        repository.upsertRepos(List.of(full(3, "c/three", 30, null, T1), full(1, "a/one", 10, null, T1),
+                full(2, "b/two", 9, null, T1), withNulls(4, "d/four")));   // 1-3: 2024-01-14, 4: 2024-01-01T00:00:00Z, 10 stars
+
+        assertThat(repository.findRefs(ctx("2024-01-01", "2024-01-31", 10, 0))).containsExactly(
+                new RepoRepository.RepoRef(1, "a/one", false), new RepoRepository.RepoRef(3, "c/three", false),
+                new RepoRepository.RepoRef(4, "d/four", null));
+        assertThat(repository.findRefs(ctx("2024-01-01", "2024-01-31", 10, 2)))
+                .as("limit 2: the first two by id").extracting(RepoRepository.RepoRef::id).containsExactly(1L, 3L);
+        assertThat(repository.findRefs(ctx("2024-01-01", "2024-01-31", 0, 0)))
+                .extracting(RepoRepository.RepoRef::id).containsExactly(1L, 2L, 3L, 4L);
+        assertThat(repository.findRefs(ctx("2024-01-14", "2024-01-14", 30, 0)))
+                .extracting(RepoRepository.RepoRef::id).containsExactly(3L);
+        assertThat(repository.findRefs(ctx("2023-12-01", "2023-12-31", 0, 0)))
+                .as("the first second of the next day is not in the period").isEmpty();
+    }
+
+    private static CollectionContext ctx(String from, String to, int minStars, int limit) {
+        return new CollectionContext(LocalDate.parse(from), LocalDate.parse(to), minStars, limit, false);
     }
 
     private static int count(String table) {
