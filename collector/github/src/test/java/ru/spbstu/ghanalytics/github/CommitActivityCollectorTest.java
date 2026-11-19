@@ -198,13 +198,25 @@ class CommitActivityCollectorTest {
     void noContentIsEmptyWithoutRows() {
         repos(ref(1, "a/empty"));
         stats("a/empty", reply(204, ""));
+        contributors("a/empty", reply(204, ""));
 
         collector.collect(MARCH);
 
         assertThat(events).containsExactly("contributors 0 false", "checkpoint 1 = empty");
-        assertThat(asked).as("no contributors request: nobody committed").containsExactly(statsPath("a/empty"));
         verify(commits, never()).upsertWeeks(anyList());
         assertThat(stats.snapshot()).containsEntry(CommitActivityCollector.EMPTY_REPOS, 1L);
+    }
+
+    @Test
+    void noContentOfARepositoryWithOnlyAnonymousCommitsKeepsItsContributors() {
+        repos(ref(1, "acheong08/DuckDuckGo-API"));
+        stats("acheong08/DuckDuckGo-API", reply(204, ""));
+        contributors("acheong08/DuckDuckGo-API", reply(200, "[{\"type\": \"Anonymous\", \"contributions\": 18}]"));
+
+        collector.collect(MARCH);
+
+        assertThat(events).as("no rows: the weeks are unknown, not zero")
+                .containsExactly("contributors 1 false", "checkpoint 1 = empty");
     }
 
     @Test
@@ -259,7 +271,8 @@ class CommitActivityCollectorTest {
 
         assertThat(sleeps).as("round 1 took 80 s").isEmpty();
         assertThat(asked).containsExactly(statsPath("a/one"), statsPath("b/two"), contributorsPath("b/two"),
-                statsPath("c/three"), statsPath("a/one"), contributorsPath("a/one"), statsPath("c/three"));
+                statsPath("c/three"), statsPath("a/one"), contributorsPath("a/one"), statsPath("c/three"),
+                contributorsPath("c/three"));
         assertThat(checkpoints.get(CommitActivityCollector.SOURCE, "3")).contains("empty");
     }
 

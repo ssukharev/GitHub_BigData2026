@@ -41,9 +41,9 @@ import java.util.regex.Pattern;
  * repositories = findRefs(--from, --to, --min-stars, --limit) by id; --resume drops those with a checkpoint
  * round 1..MAX_ROUNDS over the queue:
  *   200 -> weekly rows; stats_truncated = (100 authors); contributors_total from
- *          /contributors?per_page=1&amp;anon=1 (one request, only after a 200); checkpoint done ([] gives empty)
+ *          /contributors?per_page=1&amp;anon=1 (one request, not in every round); checkpoint done ([] gives empty)
  *   202 -> GitHub is computing the statistics: into the queue of the next round, no checkpoint
- *   204 -> contributors_total = 0, checkpoint empty;   404 -> checkpoint missing
+ *   204 -> no rows, contributors_total as for 200, checkpoint empty;   404 -> checkpoint missing
  *   an error after all retries -> WARN, no checkpoint: the next run asks again
  *   a round shorter than MIN_ROUND waits for the rest of it before the next one
  * still 202 after the last round -> counted in pending_repos, no checkpoint
@@ -57,6 +57,12 @@ import java.util.regex.Pattern;
  * is most likely cut, and the weekly numbers of such a repository are too low (pallets/flask: 2931 of
  * 5566 commits). The rows are written all the same (they are right for the top 100) and the repository
  * is marked {@code stats_truncated}; {@code contributors_total} tells how many people there are in all.
+ * <p>
+ * The statistics count only authors linked to a GitHub account: commits from an e-mail that belongs
+ * to no account are left out. A repository where every commit is such gets 204, the status the
+ * documentation gives for an empty repository (acheong08/DuckDuckGo-API: 204, 18 anonymous commits).
+ * So 204 writes no rows, which means "unknown", not zero weeks, and {@code contributors_total} is
+ * asked as after a 200: 0 for a really empty repository, the anonymous authors otherwise.
  * <p>
  * Checkpoints: source {@code github-commits}, key the repository id, value {@code done}, {@code empty}
  * or {@code missing}; written after the rows, read only with {@code --resume}.
@@ -323,9 +329,14 @@ public class CommitActivityCollector implements Collector {
         return finished(repo, contributors.isEmpty() ? Outcome.EMPTY : Outcome.DONE, rows.size());
     }
 
-    /** 204, no content (an empty repository): nobody committed, which is 0 contributors, not "unknown". */
+    /**
+     * 204, no content: an empty repository, or one where no commit has an author linked to a GitHub
+     * account. The contributors request tells one from the other (0 or the anonymous authors).
+     */
     private Result noContent(RepoRef repo) {
-        repository.updateContributorStats(repo.id(), 0, false);
+        Integer total = contributorsTotal(repo.fullName());
+        repository.updateContributorStats(repo.id(), total, false);
+        log.debug("{}: no statistics (204), contributors_total {}", repo.fullName(), total);
         return finished(repo, Outcome.EMPTY, 0);
     }
 
