@@ -157,6 +157,47 @@ class GitHubRestClientTest {
     }
 
     @Test
+    void aLowBucketWaitsForTheResetBeforeTheNextRequestInsteadOfFailing() {
+        replies.add(new Reply(200, limitHeaders(10), "[]"));
+        replies.add(new Reply(200, limitHeaders(4999), "[]"));
+
+        client.get("/repos/owner/one/stats/contributors", GitHubRestClient.ACCEPT_JSON);
+        assertThat(guardSleeps).isEmpty();
+        client.get("/repos/owner/two/stats/contributors", GitHubRestClient.ACCEPT_JSON);
+
+        assertThat(guardSleeps).as("below 50 left: sleep until the reset, then go on")
+                .containsExactly(Duration.ofMinutes(20).plusSeconds(5));
+        assertThat(seen).hasSize(2);
+        assertThat(retrySleeps).isEmpty();
+        assertThat(stats.snapshot()).containsEntry(RateLimitGuard.RATE_LIMIT_WAIT_S, 1205L);
+    }
+
+    @Test
+    void noContentAndNotFoundAreReturnedAsTheyAre() {
+        replies.add(new Reply(204, limitHeaders(4999), ""));
+        replies.add(new Reply(404, limitHeaders(4998), "{\"message\": \"Not Found\"}"));
+
+        assertThat(client.get("/repos/owner/empty/stats/contributors", GitHubRestClient.ACCEPT_JSON).statusCode())
+                .isEqualTo(204);
+        assertThat(client.get("/repos/owner/gone/stats/contributors", GitHubRestClient.ACCEPT_JSON).statusCode())
+                .isEqualTo(404);
+        assertThat(retrySleeps).isEmpty();
+    }
+
+    @Test
+    void aContributorListTooLargeIsForbiddenAtOnceNotARateLimit() {
+        replies.add(new Reply(403, limitHeaders(4000), "{\"message\": \"The history or contributor list is too large to "
+                + "list contributors for this repository via the API.\", \"status\": \"403\"}"));
+
+        assertThatThrownBy(() -> client.get("/repos/torvalds/linux/contributors?per_page=1&anon=1", GitHubRestClient.ACCEPT_JSON))
+                .isExactlyInstanceOf(HttpStatusException.class)
+                .satisfies(e -> assertThat(((HttpStatusException) e).statusCode()).isEqualTo(403));
+        assertThat(seen).hasSize(1);
+        assertThat(guardSleeps).isEmpty();
+        assertThat(retrySleeps).isEmpty();
+    }
+
+    @Test
     void forbiddenWithoutRateLimitSignsIsNotRetried() {
         replies.add(new Reply(403, limitHeaders(4000), "{\"message\": \"Repository access blocked\"}"));
 
