@@ -32,5 +32,10 @@ dumps/
 .idea/
 *.iml
 
-# Maven
-target/
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
