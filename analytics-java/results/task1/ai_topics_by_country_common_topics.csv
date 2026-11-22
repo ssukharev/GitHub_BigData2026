@@ -1,0 +1,23 @@
+topic,decision
+ai,general_ai
+ai-agents,agents
+android,not AI
+automation,not AI
+claude-code,agents
+cli,not AI
+developer-tools,not AI
+docker,not AI
+fastapi,not AI
+html,not AI
+java,not AI
+javascript,not AI
+linux,not AI
+llm,llm
+nextjs,not AI
+nodejs,not AI
+open-source,not AI
+python,not AI
+rag,llm
+react,not AI
+typescript,not AI
+vite,not AI
