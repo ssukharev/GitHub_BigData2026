@@ -1,17 +1,17 @@
 """Collector regressions: no API calls, tokens, .env or running database."""
+
 import datetime as dt
 import importlib.util
 import os
-from pathlib import Path
 import sys
-from unittest.mock import Mock
 import uuid
+from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 import requests
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.exc import IntegrityError
-
 
 MODULE_PATH = Path(__file__).resolve().parents[1] / "collectors" / "stars.py"
 SPEC = importlib.util.spec_from_file_location("stars_under_test", MODULE_PATH)
@@ -37,6 +37,7 @@ def reply(status=200, headers=None, payload=None):
     response.headers.update(headers or {})
     response.url = "https://api.github.com/repos/example/repo/stargazers/history"
     import json
+
     response._content = json.dumps(payload).encode()
     return response
 
@@ -58,15 +59,19 @@ def test_newest_bucket_is_conservatively_omitted():
 
 def test_non_utc_boundary_keeps_source_anchor_labels():
     newest = dt.datetime(2026, 11, 14, 23, tzinfo=dt.timezone.utc)
-    rows = stars.weeks_to_daily([week(newest), week(newest - dt.timedelta(weeks=1))],
-                               today=dt.date(2026, 11, 22))
+    rows = stars.weeks_to_daily(
+        [week(newest), week(newest - dt.timedelta(weeks=1))], today=dt.date(2026, 11, 22)
+    )
     assert rows[0][0] == dt.date(2026, 11, 7)  # Saturday label; never relabel to Sunday
     assert rows[-1][0] == dt.date(2026, 11, 13)
 
 
 def test_label_gap_after_boundary_change_is_not_filled_with_zero():
-    weeks = [week(LATEST), week(LATEST - dt.timedelta(weeks=1)),
-             week(LATEST - dt.timedelta(weeks=2, hours=1))]
+    weeks = [
+        week(LATEST),
+        week(LATEST - dt.timedelta(weeks=1)),
+        week(LATEST - dt.timedelta(weeks=2, hours=1)),
+    ]
     rows = stars.weeks_to_daily(weeks, today=dt.date(2026, 11, 22))
     assert len(rows) == 14
     assert dt.date(2026, 11, 7) not in dict(rows)
@@ -77,18 +82,26 @@ def test_missing_week_is_unknown_instead_of_zero():
         stars.weeks_to_daily([week(LATEST), week(LATEST - dt.timedelta(weeks=2))])
 
 
-@pytest.mark.parametrize("days", [[], [0] * 6, [0] * 8, [0] * 6 + [-1],
-                                  [0] * 6 + [1.5], [0] * 6 + [True], "0000000", None])
+@pytest.mark.parametrize(
+    "days",
+    [[], [0] * 6, [0] * 8, [0] * 6 + [-1], [0] * 6 + [1.5], [0] * 6 + [True], "0000000", None],
+)
 def test_malformed_days_cannot_be_saved(days):
     malformed = {"week": int(LATEST.timestamp()), "days": days, "total": 0}
     with pytest.raises(ValueError, match="days"):
         stars.weeks_to_daily([malformed])
 
 
-@pytest.mark.parametrize("payload", [{"week": True, "days": [0] * 7, "total": 0},
-                                     {"week": -1, "days": [0] * 7, "total": 0},
-                                     {"week": int(LATEST.timestamp()), "days": [0] * 7, "total": 1},
-                                     {"week": int(LATEST.timestamp()), "days": [0] * 7}, None])
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"week": True, "days": [0] * 7, "total": 0},
+        {"week": -1, "days": [0] * 7, "total": 0},
+        {"week": int(LATEST.timestamp()), "days": [0] * 7, "total": 1},
+        {"week": int(LATEST.timestamp()), "days": [0] * 7},
+        None,
+    ],
+)
 def test_invalid_week_and_total_are_rejected(payload):
     with pytest.raises(ValueError):
         stars.weeks_to_daily([payload])
@@ -101,8 +114,11 @@ def test_duplicate_week_is_rejected():
 
 def test_overlapping_labels_are_rejected():
     newest = dt.datetime(2026, 11, 15, 23, tzinfo=dt.timezone.utc)
-    weeks = [week(newest), week(newest - dt.timedelta(weeks=1)),
-             week(newest - dt.timedelta(weeks=2) + dt.timedelta(hours=1))]
+    weeks = [
+        week(newest),
+        week(newest - dt.timedelta(weeks=1)),
+        week(newest - dt.timedelta(weeks=2) + dt.timedelta(hours=1)),
+    ]
     with pytest.raises(ValueError, match="перекрываются"):
         stars.weeks_to_daily(weeks, today=dt.date(2026, 12, 1))
 
@@ -135,9 +151,14 @@ def test_snapshot_cannot_end_after_repository_creation(monkeypatch):
         stars.fetch_weeks(object(), "example/repo", LATEST - dt.timedelta(weeks=5))
 
 
-@pytest.mark.parametrize("created_at", [LATEST - dt.timedelta(weeks=1),
-                                       LATEST - dt.timedelta(weeks=1) + dt.timedelta(seconds=1),
-                                       LATEST - dt.timedelta(seconds=1)])
+@pytest.mark.parametrize(
+    "created_at",
+    [
+        LATEST - dt.timedelta(weeks=1),
+        LATEST - dt.timedelta(weeks=1) + dt.timedelta(seconds=1),
+        LATEST - dt.timedelta(seconds=1),
+    ],
+)
 def test_snapshot_covers_repository_creation_week(monkeypatch, created_at):
     weeks = history()
     monkeypatch.setattr(stars, "get", Mock(return_value=reply(payload=weeks)))
@@ -147,7 +168,10 @@ def test_snapshot_covers_repository_creation_week(monkeypatch, created_at):
 @pytest.mark.parametrize("status", [403, 429])
 def test_secondary_limit_retries_with_retry_after(monkeypatch, status):
     session = Mock()
-    session.get.side_effect = [reply(status, {"Retry-After": "3", "X-RateLimit-Remaining": "100"}), reply()]
+    session.get.side_effect = [
+        reply(status, {"Retry-After": "3", "X-RateLimit-Remaining": "100"}),
+        reply(),
+    ]
     sleep = Mock()
     monkeypatch.setattr(stars.time, "sleep", sleep)
     assert stars.get(session, "https://api.github.com/example").status_code == 200
@@ -166,7 +190,10 @@ def test_secondary_403_body_uses_one_minute_before_retry(monkeypatch):
 
 def test_primary_limit_waits_for_reset(monkeypatch):
     session = Mock()
-    session.get.side_effect = [reply(403, {"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "100"}), reply()]
+    session.get.side_effect = [
+        reply(403, {"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "100"}),
+        reply(),
+    ]
     sleep = Mock()
     monkeypatch.setattr(stars.time, "sleep", sleep)
     monkeypatch.setattr(stars.time, "time", lambda: 90)
@@ -205,14 +232,30 @@ def run_collector(monkeypatch):
     monkeypatch.setattr(stars, "load_dotenv", lambda: None)
     monkeypatch.setattr(stars, "make_engine", lambda: object())
     monkeypatch.setattr(stars, "make_session", lambda: object())
-    monkeypatch.setattr(stars, "get_checkpoint", lambda _, key: state["checkpoints"].get(key, (None, set()))[0])
-    monkeypatch.setattr(stars, "get_retry_ids", lambda _, key: state["checkpoints"].get(key, (None, set()))[1].copy())
-    monkeypatch.setattr(stars, "set_checkpoint", lambda _, repo_id, ids, key: state["checkpoints"].update({key: (repo_id, ids.copy())}))
-    monkeypatch.setattr(stars, "clear_checkpoint", lambda _, key: state["checkpoints"].pop(key, None))
+    monkeypatch.setattr(
+        stars, "get_checkpoint", lambda _, key: state["checkpoints"].get(key, (None, set()))[0]
+    )
+    monkeypatch.setattr(
+        stars,
+        "get_retry_ids",
+        lambda _, key: state["checkpoints"].get(key, (None, set()))[1].copy(),
+    )
+    monkeypatch.setattr(
+        stars,
+        "set_checkpoint",
+        lambda _, repo_id, ids, key: state["checkpoints"].update({key: (repo_id, ids.copy())}),
+    )
+    monkeypatch.setattr(
+        stars, "clear_checkpoint", lambda _, key: state["checkpoints"].pop(key, None)
+    )
 
     def select(_, refresh=False, only=None, limit=None, after_id=None, retry_ids=()):
-        rows = [r for r in catalog if (only is None or r[1] == only)
-                and (after_id is None or r[0] > after_id or r[0] in retry_ids)]
+        rows = [
+            r
+            for r in catalog
+            if (only is None or r[1] == only)
+            and (after_id is None or r[0] > after_id or r[0] in retry_ids)
+        ]
         return rows[:limit] if limit is not None else rows
 
     def fetch(_, name, created_at=None):
@@ -224,9 +267,16 @@ def run_collector(monkeypatch):
     monkeypatch.setattr(stars, "select_repos", select)
     monkeypatch.setattr(stars, "start_run", lambda *_: 1)
     monkeypatch.setattr(stars, "fetch_weeks", fetch)
-    monkeypatch.setattr(stars, "save_daily", lambda _, repo_id, rows: state["saved"].append(repo_id))
-    monkeypatch.setattr(stars, "finish_run", lambda _, run_id, status, rows, stats, error: state["runs"].append(
-        {"status": status, "rows": rows, "stats": stats, "error": error}))
+    monkeypatch.setattr(
+        stars, "save_daily", lambda _, repo_id, rows: state["saved"].append(repo_id)
+    )
+    monkeypatch.setattr(
+        stars,
+        "finish_run",
+        lambda _, run_id, status, rows, stats, error: state["runs"].append(
+            {"status": status, "rows": rows, "stats": stats, "error": error}
+        ),
+    )
 
     def run(*args):
         monkeypatch.setattr(sys, "argv", ["stars.py", *args])
@@ -260,7 +310,9 @@ def test_404_is_retained_for_retry_and_run_is_failed(run_collector):
     assert state["runs"][-1]["status"] == "failed"
 
 
-@pytest.mark.parametrize("failure", [http_error(401), http_error(429), requests.ConnectionError("offline")])
+@pytest.mark.parametrize(
+    "failure", [http_error(401), http_error(429), requests.ConnectionError("offline")]
+)
 def test_run_wide_errors_stop_before_next_repository(run_collector, failure):
     run, state = run_collector
     state["failures"]["example/one"] = failure
@@ -282,8 +334,12 @@ def test_journal_failure_does_not_replace_original_network_error(run_collector, 
 
 
 def test_checkpoint_scopes_do_not_cross_modes_or_repository_filters():
-    keys = {stars.checkpoint_key(), stars.checkpoint_key(True),
-            stars.checkpoint_key(False, "example/one"), stars.checkpoint_key(True, "example/one")}
+    keys = {
+        stars.checkpoint_key(),
+        stars.checkpoint_key(True),
+        stars.checkpoint_key(False, "example/one"),
+        stars.checkpoint_key(True, "example/one"),
+    }
     assert len(keys) == 4
 
 
@@ -301,18 +357,25 @@ def postgres(monkeypatch):
     ids = [8_000_000_000_000_000_101, 8_000_000_000_000_000_102, 8_000_000_000_000_000_103]
     with engine.begin() as conn:
         for repo_id in ids:
-            conn.execute(text("""
+            conn.execute(
+                text("""
                 INSERT INTO core.repos(id, node_id, full_name, owner_type, created_at,
                                        stars, forks, is_fork, is_archived)
                 VALUES (:id, :name, :name, 'User', now(), 10, 0, false, false)
-            """), {"id": repo_id, "name": source + "/" + str(repo_id)})
+            """),
+                {"id": repo_id, "name": source + "/" + str(repo_id)},
+            )
     try:
         yield engine, ids
     finally:
         with engine.begin() as conn:
             conn.execute(text("DELETE FROM core.repos WHERE id = ANY(:ids)"), {"ids": ids})
-            conn.execute(text("DELETE FROM core.checkpoints WHERE source = :source"), {"source": source})
-            conn.execute(text("DELETE FROM core.collection_runs WHERE source = :source"), {"source": source})
+            conn.execute(
+                text("DELETE FROM core.checkpoints WHERE source = :source"), {"source": source}
+            )
+            conn.execute(
+                text("DELETE FROM core.collection_runs WHERE source = :source"), {"source": source}
+            )
         engine.dispose()
 
 
@@ -333,7 +396,9 @@ def test_postgres_checkpoint_and_retry_queue_rollback_together(postgres):
     stars.set_checkpoint(engine, ids[1], {ids[0]})
 
     def fail_second_write(conn, cursor, statement, parameters, context, executemany):
-        if statement.startswith("INSERT INTO core.checkpoints") and parameters["key"].endswith(":failed_repo_ids"):
+        if statement.startswith("INSERT INTO core.checkpoints") and parameters["key"].endswith(
+            ":failed_repo_ids"
+        ):
             raise RuntimeError("injected failure between checkpoint writes")
 
     event.listen(engine, "before_cursor_execute", fail_second_write)
@@ -354,18 +419,32 @@ def test_postgres_upsert_is_idempotent_and_rolls_back_failed_repository(postgres
     with pytest.raises(IntegrityError):
         stars.save_daily(engine, ids[0], [(day, 7), (day + dt.timedelta(days=1), -1)])
     with engine.connect() as conn:
-        rows = conn.execute(text("SELECT day, new_stars FROM core.star_history_daily WHERE repo_id = :id"),
-                            {"id": ids[0]}).all()
+        rows = conn.execute(
+            text("SELECT day, new_stars FROM core.star_history_daily WHERE repo_id = :id"),
+            {"id": ids[0]},
+        ).all()
     assert rows == [(day, 2)]
 
 
 def test_postgres_journal_records_failed_run_and_retry_statistics(postgres):
     engine, ids = postgres
     run_id = stars.start_run(engine, {"refresh": True})
-    stars.finish_run(engine, run_id, "failed", 7, {"repos_failed": 1, "retry_repo_ids": [ids[0]]}, "retry required")
+    stars.finish_run(
+        engine,
+        run_id,
+        "failed",
+        7,
+        {"repos_failed": 1, "retry_repo_ids": [ids[0]]},
+        "retry required",
+    )
     with engine.connect() as conn:
-        row = conn.execute(text("SELECT status, rows, params, stats, error, finished_at "
-                                "FROM core.collection_runs WHERE id = :id"), {"id": run_id}).one()
+        row = conn.execute(
+            text(
+                "SELECT status, rows, params, stats, error, finished_at "
+                "FROM core.collection_runs WHERE id = :id"
+            ),
+            {"id": run_id},
+        ).one()
     assert row.status == "failed"
     assert row.rows == 7
     assert row.params == {"refresh": True}

@@ -4,13 +4,14 @@
     python analytics-py/collectors/stars.py --repo psf/requests
     python analytics-py/collectors/stars.py --refresh
 """
+
 import argparse
 import datetime as dt
-from email.utils import parsedate_to_datetime
 import json
 import os
 import sys
 import time
+from email.utils import parsedate_to_datetime
 
 import requests
 from dotenv import load_dotenv
@@ -20,10 +21,12 @@ from sqlalchemy.engine import URL
 
 API = "https://api.github.com"
 API_VERSION = "2026-03-10"
-SOURCE = "github_stars"   # значение source в core.collection_runs и core.checkpoints
-PER_PAGE = 30     # максимум для этого эндпоинта
-MAX_PAGES = 100   # максимум страниц, 3000 недель
-MAX_WEEK_INTERVAL = dt.timedelta(days=8)  # допускает сдвиг границы календарной недели, но не пропуск недели
+SOURCE = "github_stars"  # значение source в core.collection_runs и core.checkpoints
+PER_PAGE = 30  # максимум для этого эндпоинта
+MAX_PAGES = 100  # максимум страниц, 3000 недель
+MAX_WEEK_INTERVAL = dt.timedelta(
+    days=8
+)  # допускает сдвиг границы календарной недели, но не пропуск недели
 
 metadata = MetaData(schema="core")
 star_history_daily = Table(
@@ -52,15 +55,18 @@ def make_engine():
 
 def make_session():
     session = requests.Session()
-    session.headers.update({
-        "Accept": "application/vnd.github+json",
-        "Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}",
-        "X-GitHub-Api-Version": API_VERSION,
-    })
+    session.headers.update(
+        {
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}",
+            "X-GitHub-Api-Version": API_VERSION,
+        }
+    )
     return session
 
 
 # ---------- HTTP с повторами и лимитами ----------
+
 
 def _retry_after(response):
     value = response.headers.get("Retry-After")
@@ -85,9 +91,11 @@ def _reset_wait(response):
 def _is_rate_limit(response):
     return response.status_code == 429 or (
         response.status_code == 403
-        and (response.headers.get("X-RateLimit-Remaining") == "0"
-             or "Retry-After" in response.headers
-             or "secondary rate limit" in response.text.lower())
+        and (
+            response.headers.get("X-RateLimit-Remaining") == "0"
+            or "Retry-After" in response.headers
+            or "secondary rate limit" in response.text.lower()
+        )
     )
 
 
@@ -112,8 +120,11 @@ def get(session, url, params=None, attempts=6):
         except (requests.ConnectionError, requests.Timeout) as e:
             if attempt == attempts:
                 raise
-            pause = 2 ** attempt
-            print(f"    сбой сети ({type(e).__name__}), попытка {attempt}/{attempts}, жду {pause} с", flush=True)
+            pause = 2**attempt
+            print(
+                f"    сбой сети ({type(e).__name__}), попытка {attempt}/{attempts}, жду {pause} с",
+                flush=True,
+            )
             time.sleep(pause)
             continue
 
@@ -127,8 +138,10 @@ def get(session, url, params=None, attempts=6):
                 r.raise_for_status()
             pause = _retry_after(r)
             if pause is None:
-                pause = 2 ** attempt
-            print(f"    HTTP {r.status_code}, попытка {attempt}/{attempts}, жду {pause} с", flush=True)
+                pause = 2**attempt
+            print(
+                f"    HTTP {r.status_code}, попытка {attempt}/{attempts}, жду {pause} с", flush=True
+            )
             time.sleep(pause)
             continue
 
@@ -146,8 +159,11 @@ def fetch_weeks(session, full_name, created_at=None):
     """Все недели истории репозитория (от новых к старым)."""
     weeks = []
     for page in range(1, MAX_PAGES + 1):
-        r = get(session, f"{API}/repos/{full_name}/stargazers/history",
-                params={"per_page": PER_PAGE, "page": page})
+        r = get(
+            session,
+            f"{API}/repos/{full_name}/stargazers/history",
+            params={"per_page": PER_PAGE, "page": page},
+        )
         chunk = r.json()
         if not isinstance(chunk, list) or len(chunk) > PER_PAGE:
             raise ValueError(f"страница {page}: ожидается массив не более {PER_PAGE} недель")
@@ -175,9 +191,14 @@ def _validate_weeks(weeks, created_at=None):
             start = dt.datetime.fromtimestamp(timestamp, dt.timezone.utc)
         except (ValueError, OverflowError, OSError) as error:
             raise ValueError(f"неделя {index}: некорректный week") from error
-        if (not isinstance(days, list) or len(days) != 7
-                or any(type(n) is not int or n < 0 for n in days)):
-            raise ValueError(f"неделя {index}: days должен содержать семь целых неотрицательных значений")
+        if (
+            not isinstance(days, list)
+            or len(days) != 7
+            or any(type(n) is not int or n < 0 for n in days)
+        ):
+            raise ValueError(
+                f"неделя {index}: days должен содержать семь целых неотрицательных значений"
+            )
         if type(total) is not int or total < 0 or sum(days) != total:
             raise ValueError(f"неделя {index}: total не совпадает с суммой days")
         if previous is not None:
@@ -205,8 +226,11 @@ def weeks_to_daily(weeks, today=None):
     известен по началу следующей API-недели. Пропуски не заполняются нулями.
     """
     _validate_weeks(weeks)
-    now = (dt.datetime.combine(today, dt.time.min, dt.timezone.utc)
-           if today is not None else dt.datetime.now(dt.timezone.utc))
+    now = (
+        dt.datetime.combine(today, dt.time.min, dt.timezone.utc)
+        if today is not None
+        else dt.datetime.now(dt.timezone.utc)
+    )
     by_day = {}
     for index, w in enumerate(weeks[1:], 1):
         next_start = dt.datetime.fromtimestamp(weeks[index - 1]["week"], dt.timezone.utc)
@@ -222,6 +246,7 @@ def weeks_to_daily(weeks, today=None):
 
 
 # ---------- БД ----------
+
 
 def select_repos(engine, refresh=False, only=None, limit=None, after_id=None, retry_ids=()):
     conds, params = [], {}
@@ -259,18 +284,30 @@ def save_daily(engine, repo_id, rows):
 
 def start_run(engine, params):
     """Запись о запуске в core.collection_runs (status = running). Возвращает id запуска."""
-    sql = text("INSERT INTO core.collection_runs (source, params) "
-               "VALUES (:source, CAST(:params AS jsonb)) RETURNING id")
+    sql = text(
+        "INSERT INTO core.collection_runs (source, params) "
+        "VALUES (:source, CAST(:params AS jsonb)) RETURNING id"
+    )
     with engine.begin() as conn:
         return conn.execute(sql, {"source": SOURCE, "params": json.dumps(params)}).scalar_one()
 
 
 def finish_run(engine, run_id, status, rows, stats, error=None):
-    sql = text("UPDATE core.collection_runs SET finished_at = now(), status = :status, rows = :rows, "
-               "error = :error, stats = CAST(:stats AS jsonb) WHERE id = :id")
+    sql = text(
+        "UPDATE core.collection_runs SET finished_at = now(), status = :status, rows = :rows, "
+        "error = :error, stats = CAST(:stats AS jsonb) WHERE id = :id"
+    )
     with engine.begin() as conn:
-        conn.execute(sql, {"id": run_id, "status": status, "rows": rows,
-                           "error": error, "stats": json.dumps(stats)})
+        conn.execute(
+            sql,
+            {
+                "id": run_id,
+                "status": status,
+                "rows": rows,
+                "error": error,
+                "stats": json.dumps(stats),
+            },
+        )
 
 
 def get_checkpoint(engine, key="last_repo_id"):
@@ -283,27 +320,43 @@ def get_checkpoint(engine, key="last_repo_id"):
 def get_retry_ids(engine, key="last_repo_id"):
     sql = text("SELECT value FROM core.checkpoints WHERE source = :source AND key = :key")
     with engine.connect() as conn:
-        value = conn.execute(sql, {"source": SOURCE, "key": key + ":failed_repo_ids"}).scalar_one_or_none()
+        value = conn.execute(
+            sql, {"source": SOURCE, "key": key + ":failed_repo_ids"}
+        ).scalar_one_or_none()
     ids = json.loads(value) if value is not None else []
-    if not isinstance(ids, list) or any(type(repo_id) is not int or repo_id <= 0 for repo_id in ids):
+    if not isinstance(ids, list) or any(
+        type(repo_id) is not int or repo_id <= 0 for repo_id in ids
+    ):
         raise ValueError("некорректный список повторных попыток в чекпоинте")
     return set(ids)
 
 
 def set_checkpoint(engine, repo_id, retry_ids=(), key="last_repo_id"):
     """Позиция и очередь ошибок записываются вместе: resume не теряет неудачные репозитории."""
-    sql = text("INSERT INTO core.checkpoints (source, key, value) VALUES (:source, :key, :value) "
-               "ON CONFLICT (source, key) DO UPDATE SET value = excluded.value, updated_at = now()")
+    sql = text(
+        "INSERT INTO core.checkpoints (source, key, value) VALUES (:source, :key, :value) "
+        "ON CONFLICT (source, key) DO UPDATE SET value = excluded.value, updated_at = now()"
+    )
     with engine.begin() as conn:
         conn.execute(sql, {"source": SOURCE, "key": key, "value": str(repo_id)})
-        conn.execute(sql, {"source": SOURCE, "key": key + ":failed_repo_ids",
-                           "value": json.dumps(sorted(retry_ids))})
+        conn.execute(
+            sql,
+            {
+                "source": SOURCE,
+                "key": key + ":failed_repo_ids",
+                "value": json.dumps(sorted(retry_ids)),
+            },
+        )
 
 
 def clear_checkpoint(engine, key="last_repo_id"):
     with engine.begin() as conn:
-        conn.execute(text("DELETE FROM core.checkpoints WHERE source = :source AND key IN (:key, :retry_key)"),
-                     {"source": SOURCE, "key": key, "retry_key": key + ":failed_repo_ids"})
+        conn.execute(
+            text(
+                "DELETE FROM core.checkpoints WHERE source = :source AND key IN (:key, :retry_key)"
+            ),
+            {"source": SOURCE, "key": key, "retry_key": key + ":failed_repo_ids"},
+        )
 
 
 def checkpoint_key(refresh=False, only=None):
@@ -317,7 +370,9 @@ def main():
     p.add_argument("--limit", type=int, help="обработать не более N репозиториев")
     p.add_argument("--repo", help="только один репозиторий, формат owner/name")
     p.add_argument("--refresh", action="store_true", help="пересобрать и уже собранные (upsert)")
-    p.add_argument("--resume", action="store_true", help="продолжить после последнего репозитория из чекпоинта")
+    p.add_argument(
+        "--resume", action="store_true", help="продолжить после последнего репозитория из чекпоинта"
+    )
     args = p.parse_args()
     if args.limit is not None and args.limit <= 0:
         p.error("--limit должен быть положительным")
@@ -327,13 +382,24 @@ def main():
     key = checkpoint_key(args.refresh, args.repo)
     after_id = get_checkpoint(engine, key) if args.resume else None
     retry_ids = get_retry_ids(engine, key) if args.resume else set()
-    repos = select_repos(engine, refresh=args.refresh, only=args.repo, limit=args.limit,
-                         after_id=after_id, retry_ids=retry_ids)
-    print(f"К обработке репозиториев: {len(repos)}"
-          + (f" (после id={after_id})" if after_id is not None else ""), flush=True)
+    repos = select_repos(
+        engine,
+        refresh=args.refresh,
+        only=args.repo,
+        limit=args.limit,
+        after_id=after_id,
+        retry_ids=retry_ids,
+    )
+    print(
+        f"К обработке репозиториев: {len(repos)}"
+        + (f" (после id={after_id})" if after_id is not None else ""),
+        flush=True,
+    )
 
-    run_id = start_run(engine, {"limit": args.limit, "repo": args.repo,
-                                "refresh": args.refresh, "resume": args.resume})
+    run_id = start_run(
+        engine,
+        {"limit": args.limit, "repo": args.repo, "refresh": args.refresh, "resume": args.resume},
+    )
     done = failed = skipped = total_rows = 0
     status, error = "success", None
     last_repo_id = after_id or 0
@@ -350,25 +416,37 @@ def main():
             except (requests.RequestException, ValueError) as e:
                 failed += 1
                 retry_ids.add(repo_id)
-                status, error = "failed", f"ошибок репозиториев: {failed}; требуется повторный запуск --resume"
-                print(f"[{i}/{len(repos)}] {full_name}: ОШИБКА {type(e).__name__}: {str(e)[:150]}", flush=True)
+                status, error = (
+                    "failed",
+                    f"ошибок репозиториев: {failed}; требуется повторный запуск --resume",
+                )
+                print(
+                    f"[{i}/{len(repos)}] {full_name}: ОШИБКА {type(e).__name__}: {str(e)[:150]}",
+                    flush=True,
+                )
                 set_checkpoint(engine, last_repo_id, retry_ids, key)
                 response = getattr(e, "response", None)
-                if (isinstance(e, (requests.ConnectionError, requests.Timeout))
-                        or (response is not None and response.status_code in (401, 403, 429))):
+                if isinstance(e, (requests.ConnectionError, requests.Timeout)) or (
+                    response is not None and response.status_code in (401, 403, 429)
+                ):
                     raise  # проблема соединения/токена/лимита относится ко всему запуску
                 continue
             retry_ids.discard(repo_id)
             set_checkpoint(engine, last_repo_id, retry_ids, key)
             if not rows:
                 skipped += 1
-                print(f"[{i}/{len(repos)}] {full_name}: нет завершённых недель, пропускаю", flush=True)
+                print(
+                    f"[{i}/{len(repos)}] {full_name}: нет завершённых недель, пропускаю", flush=True
+                )
                 continue
             done += 1
             total_rows += len(rows)
             total = sum(n for _, n in rows)
-            print(f"[{i}/{len(repos)}] {full_name}: дней={len(rows)}, сумма={total}, "
-                  f"в repos.stars={repo_stars}", flush=True)
+            print(
+                f"[{i}/{len(repos)}] {full_name}: дней={len(rows)}, сумма={total}, "
+                f"в repos.stars={repo_stars}",
+                flush=True,
+            )
         if retry_ids:
             status, error = "failed", f"ожидают повторной попытки: {len(retry_ids)} репозиториев"
         # Не удаляем очередь ошибок, даже если дошли до конца основной выборки.
@@ -383,15 +461,30 @@ def main():
         raise
     finally:
         try:
-            finish_run(engine, run_id, status, total_rows,
-                       {"repos_done": done, "repos_failed": failed, "repos_skipped": skipped,
-                        "retry_repo_ids": sorted(retry_ids)}, error)
+            finish_run(
+                engine,
+                run_id,
+                status,
+                total_rows,
+                {
+                    "repos_done": done,
+                    "repos_failed": failed,
+                    "repos_skipped": skipped,
+                    "retry_repo_ids": sorted(retry_ids),
+                },
+                error,
+            )
         except Exception as log_error:
             if original_failure is None:
                 raise
-            print(f"Не удалось записать завершение запуска: {type(log_error).__name__}", file=sys.stderr)
+            print(
+                f"Не удалось записать завершение запуска: {type(log_error).__name__}",
+                file=sys.stderr,
+            )
 
-    print(f"Готово: собрано {done}, ошибок {failed}, пропущено {skipped}, строк записано {total_rows}")
+    print(
+        f"Готово: собрано {done}, ошибок {failed}, пропущено {skipped}, строк записано {total_rows}"
+    )
     return 1 if (failed or status == "failed") else 0
 
 
