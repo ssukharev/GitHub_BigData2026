@@ -39,10 +39,13 @@ public final class InnovationGraphLoader {
 
     public Result load() throws SQLException {
         try (Connection log = db.open()) {
-            long runId = CollectionRuns.start(log, SOURCE, toJson(Map.of("ref", ref)));
+            long runId = CollectionRuns.start(log, SOURCE, toJson(Map.of("requestedRef", ref)));
             try {
-                List<QuarterlyStats> stats = client.fetchQuarterlyStats();
-                List<TopicStats> topics = client.fetchTopics();
+                InnovationGraphClient snapshot = client.pinSnapshot();
+                CollectionRuns.updateParams(log, runId,
+                        toJson(Map.of("requestedRef", ref, "ref", snapshot.ref())));
+                List<QuarterlyStats> stats = snapshot.fetchQuarterlyStats();
+                List<TopicStats> topics = snapshot.fetchTopics();
                 SortedMap<String, Long> unknown = write(stats, topics);
 
                 Result result = new Result(runId, stats.size(), topics.size(), unknown);

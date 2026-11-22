@@ -5,7 +5,7 @@ package ru.spbstu.ghanalytics.innovationgraph;
  * <pre>
  * docker compose up -d                       # PostgreSQL + Flyway migrations
  * cd collector/innovation-graph
- * mvn -q compile exec:java                   # branch main of github/innovationgraph
+ * mvn -q compile exec:java                   # current commit of main in github/innovationgraph
  * mvn -q compile exec:java -Dexec.args="&lt;commit sha&gt;"
  * </pre>
  * Load World Bank first: country codes are checked against {@code core.countries}.

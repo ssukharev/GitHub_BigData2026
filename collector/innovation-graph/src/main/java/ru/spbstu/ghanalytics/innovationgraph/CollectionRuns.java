@@ -29,6 +29,15 @@ final class CollectionRuns {
         }
     }
 
+    static void updateParams(Connection conn, long id, String paramsJson) throws SQLException {
+        try (PreparedStatement st = conn.prepareStatement(
+                "UPDATE core.collection_runs SET params = ?::jsonb WHERE id = ?")) {
+            st.setString(1, paramsJson);
+            st.setLong(2, id);
+            st.executeUpdate();
+        }
+    }
+
     static void succeed(Connection conn, long id, long rows, String statsJson) throws SQLException {
         try (PreparedStatement st = conn.prepareStatement("""
                 UPDATE core.collection_runs

@@ -16,6 +16,9 @@ final class InnovationGraphParser {
 
     Map<CountryQuarter, Long> parseMetric(String csv, Metric metric) {
         List<String[]> rows = select(csv, metric.column(), "iso2_code", "year", "quarter");
+        if (rows.isEmpty()) {
+            throw new InnovationGraphException(metric.column() + ".csv has no data rows");
+        }
         Map<CountryQuarter, Long> result = new TreeMap<>();
         for (int i = 0; i < rows.size(); i++) {
             String[] row = rows.get(i);
@@ -34,6 +37,9 @@ final class InnovationGraphParser {
 
     List<TopicStats> parseTopics(String csv) {
         List<String[]> rows = select(csv, "num_pushers", "topic", "iso2_code", "year", "quarter");
+        if (rows.isEmpty()) {
+            throw new InnovationGraphException("topics.csv has no data rows");
+        }
         List<TopicStats> result = new ArrayList<>(rows.size());
         Set<String> seen = new HashSet<>();
         for (int i = 0; i < rows.size(); i++) {

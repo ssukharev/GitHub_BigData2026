@@ -5,13 +5,14 @@
 - `developers`, `repositories`, `git_pushes` → одна строка на (страна, год, квартал) → `core.innovation_graph`
 - `topics` → `core.innovation_graph_topics` (нужно для задачи 1: ИИ-топики по странам)
 
-`InnovationGraphClient` скачивает файлы с raw.githubusercontent.com и повторяет запрос при сетевых ошибках, HTTP 429 и 5xx (3 попытки, пауза 2 с, затем 4 с). Колонки ищутся по имени. Если колонки нет, строка короткая, ключ повторяется или значение не число, загрузка падает с номером строки.
+`InnovationGraphClient` скачивает файлы с raw.githubusercontent.com и повторяет запрос при сетевых ошибках, HTTP 429 и 5xx (3 попытки, пауза 2 с, затем 4 с). Колонки ищутся по имени. Если колонки нет, строка короткая, ключ повторяется или значение не число, загрузка падает с номером строки. Любой из четырёх файлов без строк данных (в том числе с одним заголовком) отклоняется: отсутствие целого файла метрик не превращается в `NULL` для всех стран.
 
 ```java
-var client = new InnovationGraphClient();          // ветка main
-var pinned = new InnovationGraphClient("<sha>");   // воспроизводимый запуск по коммиту
-List<QuarterlyStats> stats = client.fetchQuarterlyStats();
-List<TopicStats> topics = client.fetchTopics();
+var client = new InnovationGraphClient();          // запрошена ветка main
+var pinned = client.pinSnapshot();                // один запрос commits API: main -> полный SHA
+// Для известного полного SHA: new InnovationGraphClient("<sha>").pinSnapshot(), без запроса API.
+List<QuarterlyStats> stats = pinned.fetchQuarterlyStats();
+List<TopicStats> topics = pinned.fetchTopics();
 ```
 
 `CountryCodeReport.unknownCodes(...)` сравнивает коды из данных с `core.countries` и считает строки по каждому неизвестному коду.
@@ -22,13 +23,15 @@ List<TopicStats> topics = client.fetchTopics();
 docker compose up -d                                  # из корня репозитория: PostgreSQL + миграции Flyway
 cd collector/worldbank && mvn -q compile exec:java    # сначала справочник стран
 cd ../innovation-graph
-mvn -q compile exec:java                              # ветка main репозитория github/innovationgraph
+mvn -q compile exec:java                              # текущий коммит main репозитория github/innovationgraph
 mvn -q compile exec:java -Dexec.args="<sha>"          # конкретный коммит
 ```
 
 Настройки подключения — из переменных окружения или `.env` в корне репозитория, как у `collector/worldbank`.
 
-`InnovationGraphLoader` сначала скачивает все четыре файла, потом одной транзакцией заменяет содержимое `core.innovation_graph` и `core.innovation_graph_topics`. GitHub выкладывает файлы целиком и может пересчитать или убрать прошлые строки, поэтому таблицы повторяют последний снимок, а не копят старые значения. При ошибке старые данные остаются. Запуск записывается в `core.collection_runs` (`source = 'innovation_graph'`, `params.ref`, в `stats` — число строк и коды стран, которых нет в `core.countries`).
+`InnovationGraphLoader` в начале каждого запуска разрешает ветку или тег в полный SHA через `GET /repos/github/innovationgraph/commits/{ref}`. Все четыре CSV скачиваются по этому SHA, даже если upstream успел обновить `main`. При передаче полного 40-символьного SHA дополнительного запроса нет. Публичный commits API используется без токена; при исчерпании его квоты запуск завершается с ошибкой, данные сохраняются.
+
+После проверки всех четырёх файлов загрузчик одной транзакцией заменяет содержимое `core.innovation_graph` и `core.innovation_graph_topics`. GitHub выкладывает файлы целиком и может пересчитать или убрать прошлые строки, поэтому таблицы повторяют последний снимок, а не копят старые значения. При ошибке скачивания, разрешения версии или валидации старые данные остаются. Запуск записывается в `core.collection_runs` (`source = 'innovation_graph'`, `params.requestedRef` — исходная ветка/тег/SHA, `params.ref` — фактический SHA; в `stats` — число строк и неизвестные коды стран). Если разрешить версию не удалось, остаётся `requestedRef`, а запуск получает статус `failed`.
 
 `DbConfig` и `CollectionRuns` временные: переедут в `collector/core`, когда он появится.
 
@@ -69,4 +72,6 @@ mvn test
 
 Фикстуры в `src/test/resources/innovationgraph` — урезанные реальные файлы (пять стран и два квартала).
 
-`InnovationGraphLoaderTest` поднимает PostgreSQL 16 в Docker (Testcontainers), применяет миграции из `collector/core/src/main/resources/db/migration` и проверяет загрузку, отчёт о неизвестных кодах, повторную загрузку и сохранение старых данных при ошибке. Без запущенного Docker эти тесты пропускаются.
+`InnovationGraphClientTest` проверяет разрешение версии через локальный HTTP-сервер: все CSV используют один SHA при движущейся ветке, полный SHA обходится без API, некорректный ответ отклоняется, запросы повторяются при временных ошибках.
+
+`InnovationGraphLoaderTest` поднимает PostgreSQL 16 в Docker (Testcontainers), применяет миграции из `collector/core/src/main/resources/db/migration` и проверяет загрузку, отчёт о неизвестных кодах, повторную загрузку, журнал фактических SHA и сохранение полного старого снимка при ошибке. Для каждого из четырёх CSV отдельно проверяется отказ на одном заголовке и статус `failed`. Без запущенного Docker эти тесты пропускаются.
