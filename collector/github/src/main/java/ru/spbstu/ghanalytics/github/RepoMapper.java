@@ -24,6 +24,9 @@ public class RepoMapper {
     /** Only to write a {@code Map<String, Long>} as a JSON string. */
     private static final ObjectMapper JSON = new ObjectMapper();
 
+    /** Stateless: a field keeps the constructor without arguments. */
+    private final RepoFeatureDetector detector = new RepoFeatureDetector();
+
     /**
      * Primary key: {@code fullDatabaseId} (a BigInt, sent as a string); {@code databaseId}
      * (a 32-bit Int GitHub is phasing out) if it is missing.
@@ -42,9 +45,9 @@ public class RepoMapper {
     }
 
     /**
-     * Maps a node to a row. Null-safe for every optional part; {@code has_*} stay null
-     * (the feature detector fills them later), an empty homepage becomes null, character 0
-     * is removed from free text (PostgreSQL text cannot hold it).
+     * Maps a node to a row. Null-safe for every optional part; {@code has_*} come from
+     * {@link RepoFeatureDetector} (null for an empty repository), an empty homepage becomes null,
+     * character 0 is removed from free text (PostgreSQL text cannot hold it).
      *
      * @param collectedAt one moment for the whole run
      */
@@ -57,12 +60,13 @@ public class RepoMapper {
         if (homepage != null && homepage.isBlank()) {
             homepage = null;
         }
+        RepoFeatures features = detector.detect(entries(node.rootTree()), entries(node.srcTree()), entries(node.dotGithub()));
         return new RepoRow(
                 idOf(node), node.id(), node.nameWithOwner(), ownerType,
                 node.isFork(), node.isArchived(), stripNul(node.description()),
                 node.createdAt(), node.pushedAt(), language,
                 node.stargazerCount(), node.forkCount(), license, topics(node),
-                null, null, null,
+                features.hasTests(), features.hasCi(), features.hasDocker(),
                 node.diskUsage(), collectedAt,
                 node.hasIssuesEnabled(), count(node.openIssues()), count(node.closedIssues()),
                 count(node.openPrs()), count(node.mergedPrs()), count(node.closedPrs()),
@@ -84,6 +88,11 @@ public class RepoMapper {
         addTree(rows, id, "src/", node.srcTree());
         addTree(rows, id, ".github/", node.dotGithub());
         return rows;
+    }
+
+    /** Null for a missing tree and for {@code {}} (a file where a directory was asked for). */
+    private static List<TreeEntry> entries(RepoNode.Tree tree) {
+        return tree == null ? null : tree.entries();
     }
 
     private static void addTree(List<RepoTreeEntryRow> rows, long id, String prefix, RepoNode.Tree tree) {

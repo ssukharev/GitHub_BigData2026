@@ -28,13 +28,27 @@ in `COLLECTOR_GITHUB_TOKENS`, for example from your `gh` login:
 
 ```bash
 export COLLECTOR_GITHUB_TOKENS="$(gh auth token)"
+mvn -q -DskipTests clean package   # clean: a plain package may keep an old collector.jar
 java -jar collector/app/target/collector.jar --source=github-repos \
-  --from=2024-01-01 --to=2024-01-31 --min-stars=10 --limit=200
+  --from=2018-01-01 --to=2025-12-31 --min-stars=10 --limit=5000 --seed=42
 ```
 
-`github-repos` writes `core.repos`, `core.repo_tree_entries` (root, `src/` and `.github/`
-entries) and `core.readmes` (NULL text: the repository has no README); raw GraphQL pages go
-to `raw.github_responses`. A second run with the same options updates the same rows.
+`github-repos` collects a stratified random sample: every calendar month of the period gets
+an equal quota (`limit / months`), and random 10-minute windows of the month (shuffled by the
+seed) are taken whole until the quota is reached. It writes `core.repos` (with `has_tests`,
+`has_ci`, `has_docker`), `core.repo_tree_entries` (root, `src/` and `.github/` entries) and
+`core.readmes` (NULL text: the repository has no README); raw GraphQL answers go to
+`raw.github_responses`. At the end it writes `docs/data/population-by-month.csv` (population of
+each month, the base of the weights) and `docs/data/sample-windows.csv` (the windows taken) relative
+to the working directory, so run it from the repository root; `--collector.sample.report-dir=DIR`
+writes them elsewhere (for a pilot). How the sample is built and what it cannot see:
+`docs/data/heuristics-notes.md`. The reported `N/n` weights are approximate poststratification
+factors: quota-based stopping gives unequal inclusion probabilities, so population estimates
+are not guaranteed to be unbiased.
+
+A second run with the same options updates the same rows. After a crash, run the same command
+with `--resume`: finished windows are taken from `core.checkpoints` without requests. One database
+holds one sample: another `--seed`, `--limit` or `--min-stars` on the same tables mixes two samples.
 With `COLLECTOR_GITHUB_TOKENS` set, `mvn verify` also runs the live GitHub tests.
 
 Search-planning utilities (`DateRange`, `GitHubRepoCounter`, `SearchSlicer`) split creation-date
@@ -42,7 +56,8 @@ plans into fully reachable slices of at most 1000 matches. If even one day excee
 the entire plan fails before returning slices; this day-only utility does not split into hours.
 
 Options: `--from=YYYY-MM-DD` (default 2018-01-01), `--to=YYYY-MM-DD` (default today),
-`--min-stars=N`, `--limit=N` (0 = no limit), `--resume`.
+`--min-stars=N`, `--limit=N` (0 = every repository, only up to 50 000), `--seed=N` (default 42),
+`--resume`.
 Exit codes: 0 success, 1 the collector failed, 2 invalid arguments or unknown source.
 
 GH Archive aggregates (`core.gh_activity_hourly`, `core.gh_activity_monthly`) come from the public

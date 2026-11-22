@@ -9,11 +9,11 @@ import ru.spbstu.ghanalytics.core.run.RunStats;
 import java.time.Clock;
 
 /**
- * Settings and the beans of the GraphQL rate limit bucket. The REST API has its own bucket,
+ * Settings ({@code collector.github.*}, {@code collector.sample.*}) and the beans of the GraphQL rate limit bucket. The REST API has its own bucket,
  * so a REST client keeps its own pool and guard instead of these beans.
  */
 @Configuration(proxyBeanMethods = false)
-@EnableConfigurationProperties(GitHubProperties.class)
+@EnableConfigurationProperties({GitHubProperties.class, SampleProperties.class})
 public class GitHubConfig {
 
     /** Below this many points the guard waits for the reset instead of spending the last ones. */

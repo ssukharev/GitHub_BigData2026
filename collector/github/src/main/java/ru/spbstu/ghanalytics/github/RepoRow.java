@@ -8,7 +8,8 @@ import java.util.List;
  * the next chapters; {@code contributors_total} and {@code stats_truncated} are not here,
  * the commit activity collector writes them.
  *
- * @param hasTests  null until the feature detector exists; an upsert never overwrites a value with null
+ * @param hasTests  from {@link RepoFeatureDetector}, null if unknown (an empty repository); an upsert never
+ *                  overwrites a value with null
  * @param languages JSON object {@code {"Python": 1852623}} (bytes by language), {@code "{}"} if there are none,
  *                  null if the field was not asked for
  */

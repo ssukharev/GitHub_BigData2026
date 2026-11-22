@@ -15,3 +15,6 @@ collector:
     graphql-url: https://api.github.com/graphql
     rest-url: https://api.github.com
     # no tokens here: they come only from COLLECTOR_GITHUB_TOKENS (comma-separated)
+  sample:
+    seed: ${seed:42}           # --seed=N is the short form of --collector.sample.seed=N
+    report-dir: docs/data      # population-by-month.csv and sample-windows.csv, relative to the working directory

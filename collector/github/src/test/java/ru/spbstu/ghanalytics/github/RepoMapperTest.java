@@ -75,9 +75,19 @@ class RepoMapperTest {
         assertThat(row.archivedAt()).isNull();
         assertThat(row.homepageUrl()).as("GitHub sends an empty string").isNull();
         assertThat(row.languages()).startsWith("{\"Python\":1886910,\"Shell\":17274");
-        assertThat(row.hasTests()).isNull();
-        assertThat(row.hasCi()).isNull();
-        assertThat(row.hasDocker()).isNull();
+    }
+
+    @Test
+    void featuresOfTheFixture() {
+        // node 1: test_api_v2_streaming.py in the root, .github/workflows, Dockerfile and docker-compose.yaml
+        assertThat(mapper.toRow(nodes.get(0), COLLECTED_AT))
+                .extracting(RepoRow::hasTests, RepoRow::hasCi, RepoRow::hasDocker).containsExactly(true, true, true);
+        // node 2: src holds only shell scripts, .github/workflows, Dockerfile and compose.yml
+        assertThat(mapper.toRow(nodes.get(1), COLLECTED_AT))
+                .extracting(RepoRow::hasTests, RepoRow::hasCi, RepoRow::hasDocker).containsExactly(false, true, true);
+        // node 3: rootTree null, an empty repository: unknown, not false
+        assertThat(mapper.toRow(nodes.get(2), COLLECTED_AT))
+                .extracting(RepoRow::hasTests, RepoRow::hasCi, RepoRow::hasDocker).containsExactly(null, null, null);
     }
 
     @Test
