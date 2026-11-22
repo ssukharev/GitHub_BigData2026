@@ -10,3 +10,8 @@ spring:
   flyway:
     locations: classpath:db/migration                   # migrations from collector/core
     validate-migration-naming: true                     # a badly named migration is an error, not silence
+collector:
+  github:
+    graphql-url: https://api.github.com/graphql
+    rest-url: https://api.github.com
+    # no tokens here: they come only from COLLECTOR_GITHUB_TOKENS (comma-separated)
