@@ -8,6 +8,7 @@ import ru.spbstu.ghanalytics.analytics.Charts;
 import tech.tablesaw.api.Row;
 import tech.tablesaw.api.Table;
 
+import java.awt.Color;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -17,6 +18,8 @@ import java.util.Locale;
 /** Article figures of task 1, from the tables built by {@link Task1Main}. */
 final class Task1Charts {
 
+    private static final double COPILOT_PREVIEW_X = AiActivity.decimalYear(Task1Main.COPILOT_PREVIEW);
+    private static final double COPILOT_GA_X = AiActivity.decimalYear(Task1Main.COPILOT_GA);
     private static final double CHATGPT_X = AiActivity.decimalYear(Task1Main.CHATGPT);
     private static final double CODING_AGENTS_X = AiActivity.decimalYear(Task1Main.CODING_AGENTS);
     /** Room right of the last quarter for the value labels; small enough that no empty next year gets a tick. */
@@ -28,13 +31,14 @@ final class Task1Charts {
     }
 
     /** @param countryQuarter quarter of the by-country topic data */
-    static List<Path> write(Table activity, Table byQuarter, Table byCountry, String countryQuarter, Path dir)
+    static List<Path> write(Table activity, Table byQuarter, Table byCountry, String countryQuarter,
+                            int commonTopicCount, Path dir)
             throws IOException {
         return List.of(
                 Charts.save(aiTopicShare(byQuarter), dir, "task1_ai_topic_share"),
                 Charts.save(pushesPerDeveloper(activity), dir, "task1_pushes_per_developer"),
                 Charts.save(developersNetChange(activity), dir, "task1_developers_net_change"),
-                Charts.save(aiShareByCountry(byCountry, countryQuarter), dir, "task1_ai_share_by_country"));
+                Charts.save(aiShareByCountry(byCountry, countryQuarter, commonTopicCount), dir, "task1_ai_share_by_country"));
     }
 
     /** Quarter as a decimal year: 2023Q1 -> 2023.0, 2025Q2 -> 2025.25. */
@@ -43,13 +47,13 @@ final class Task1Charts {
     }
 
     private static XYChart aiTopicShare(Table byQuarter) {
-        XYChart chart = Charts.lines("Доля ИИ-топиков среди всех топиков репозиториев GitHub", "", "% упоминаний топиков");
+        XYChart chart = Charts.lines("ИИ-тематика среди тематических упоминаний GitHub", "", "% тематических упоминаний");
         double[] x = byQuarter.stream().mapToDouble(Task1Charts::x).toArray();
         String[][] groups = {
                 {"classic_ml_share_pct", "классическое ML"},
-                {"general_ai_share_pct", "«ai» в целом"},
-                {"llm_share_pct", "LLM и их API"},
-                {"agents_share_pct", "ИИ-агенты и ИИ-инструменты для кода"}};
+                {"general_ai_share_pct", "общий ИИ"},
+                {"llm_share_pct", "LLM и генеративный ИИ"},
+                {"agents_share_pct", "агенты и инструменты для кода"}};
         List<String> labels = new ArrayList<>();
         List<Double> ends = new ArrayList<>();
         double max = 0;
@@ -63,13 +67,19 @@ final class Task1Charts {
                 max = Math.max(max, v);
             }
         }
+        double[] total = byQuarter.doubleColumn("ai_share_pct").asDoubleArray();
+        Charts.line(chart, "ИИ всего", x, total, 4).setLineColor(new Color(0x0b0b0b));
+        labels.add(percent(total[total.length - 1]));
+        ends.add(total[total.length - 1]);
+        for (double value : total) {
+            max = Math.max(max, value);
+        }
         double xLast = x[x.length - 1];
         double yMax = Math.ceil(max * 1.15);
         frame(chart, x[0], xLast + RIGHT_MARGIN, yMax);
         double xPerChar = xPerChar(x[0], xLast + RIGHT_MARGIN);
-        Charts.event(chart, CHATGPT_X, "ChatGPT", yMax * 0.95, xPerChar);
-        Charts.event(chart, CODING_AGENTS_X, "ИИ-агенты", yMax * 0.95, xPerChar);
-        Charts.endLabels(chart, xLast, labels, ends, yMax * 0.05, xPerChar);
+        events(chart, yMax, xPerChar);
+        Charts.endLabels(chart, xLast, labels, ends, yMax * 0.035, xPerChar);
         return chart;
     }
 
@@ -83,8 +93,7 @@ final class Task1Charts {
         double yMax = Math.max(2.0, Math.ceil(java.util.Arrays.stream(y).max().orElse(0) * 1.15 * 10) / 10);
         frame(chart, x[0], xLast + RIGHT_MARGIN, yMax);
         double xPerChar = xPerChar(x[0], xLast + RIGHT_MARGIN);
-        Charts.event(chart, CHATGPT_X, "ChatGPT", yMax * 0.95, xPerChar);
-        Charts.event(chart, CODING_AGENTS_X, "ИИ-агенты", yMax * 0.95, xPerChar);
+        events(chart, yMax, xPerChar);
         Charts.endLabels(chart, xLast, List.of(String.format(Locale.forLanguageTag("ru"), "%.2f", y[y.length - 1])),
                 List.of(y[y.length - 1]), 0, xPerChar);
         return chart;
@@ -108,8 +117,9 @@ final class Task1Charts {
         return chart;
     }
 
-    private static CategoryChart aiShareByCountry(Table byCountry, String quarter) {
-        CategoryChart chart = Charts.bars("Доля ИИ-топиков по странам, " + quarter, "", "% упоминаний топиков");
+    private static CategoryChart aiShareByCountry(Table byCountry, String quarter, int commonTopicCount) {
+        CategoryChart chart = Charts.bars("ИИ-тематика по странам: общий набор топиков, " + quarter,
+                "", "% упоминаний общих топиков");
         List<String> names = new ArrayList<>();
         List<Double> others = new ArrayList<>();
         List<Double> russia = new ArrayList<>();
@@ -120,7 +130,7 @@ final class Task1Charts {
             russia.add(ru ? row.getDouble("ai_share_pct") : 0.0);
         }
         CategorySeries rest = chart.addSeries(String.format(Locale.forLanguageTag("ru"),
-                "страны с %,d+ упоминаний топиков", AiActivity.MIN_COUNTRY_TOPIC_PUSHERS), names, others);
+                "Общий набор: топиков — %d; стран — %d", commonTopicCount, byCountry.rowCount()), names, others);
         rest.setFillColor(Charts.SERIES[0]);
         CategorySeries ru = chart.addSeries("Россия", names, russia);
         ru.setFillColor(Charts.SERIES[1]);
@@ -128,6 +138,14 @@ final class Task1Charts {
         chart.getStyler().setYAxisMin(0.0);
         chart.getStyler().setLegendPosition(Styler.LegendPosition.InsideNE);
         return chart;
+    }
+
+    private static void events(XYChart chart, double yMax, double xPerChar) {
+        Charts.event(chart, COPILOT_PREVIEW_X, "Copilot: превью", yMax * 0.95, xPerChar);
+        // GA is close to ChatGPT: put its label to the left of its line.
+        Charts.event(chart, COPILOT_GA_X, "Copilot: GA", yMax * 0.83, -xPerChar);
+        Charts.event(chart, CHATGPT_X, "ChatGPT: 1-й полный квартал", yMax * 0.95, xPerChar);
+        Charts.event(chart, CODING_AGENTS_X, "ИИ-агенты", yMax * 0.83, xPerChar);
     }
 
     private static void frame(XYChart chart, double xMin, double xMax, double yMax) {
