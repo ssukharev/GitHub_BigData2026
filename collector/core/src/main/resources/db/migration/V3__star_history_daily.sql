@@ -1,6 +1,7 @@
 -- История звёзд по дням (источник: GET /repos/{owner}/{repo}/stargazers/history).
--- API отдаёт недели, начинающиеся в воскресенье 00:00 UTC; days[i] - i-й день недели (0 = воскресенье),
--- поэтому day = UTC-дата начала недели + i. Сборщик раскладывает недели по дням.
+-- days[i] - i-й день календарной недели API (0 = воскресенье); границы не гарантированы в UTC.
+-- day - метка корзины: UTC-дата исходного week + i, а не точный календарный день UTC.
+-- Из этих агрегатов нельзя восстановить точные UTC-интервалы для объединения с коммитами.
 CREATE TABLE core.star_history_daily (
     repo_id bigint NOT NULL REFERENCES core.repos(id) ON DELETE CASCADE,
     day date NOT NULL,
@@ -8,5 +9,6 @@ CREATE TABLE core.star_history_daily (
     PRIMARY KEY (repo_id, day)
 );
 
-COMMENT ON TABLE core.star_history_daily IS 'Новые звёзды репозитория по дням: непрерывный ряд от первой недели до последней полной';
-COMMENT ON COLUMN core.star_history_daily.new_stars IS 'Число звёзд, поставленных в этот день (не накопленное)';
+COMMENT ON TABLE core.star_history_daily IS 'Новые звёзды репозитория по дневным корзинам API; границы не гарантированы в UTC';
+COMMENT ON COLUMN core.star_history_daily.day IS 'Метка корзины: UTC-дата исходного week + индекс days[]; не точный календарный день UTC';
+COMMENT ON COLUMN core.star_history_daily.new_stars IS 'Число звёзд, поставленных в эту дневную корзину API (не накопленное)';
