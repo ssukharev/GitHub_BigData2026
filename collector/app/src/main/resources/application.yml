@@ -1,0 +1,5 @@
+spring:
+  application:
+    name: collector            # application name in logs
+  main:
+    web-application-type: none # console application: no web server
