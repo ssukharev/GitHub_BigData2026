@@ -11,6 +11,7 @@
 
 # %%
 import argparse
+import hashlib
 from pathlib import Path
 
 import numpy as np
@@ -18,11 +19,12 @@ import pandas as pd
 
 from ghdata.classification import (
     REPO_TYPES,
-    build_labeled_dataset,
     save_classification_figures,
+    save_evaluation_results,
     train_and_evaluate_classifiers,
 )
-from ghdata.loaders import load_repos_for_classification, save_repo_labels
+from ghdata.loaders import load_repos_for_classification
+from ghdata.manual_labels import import_manual_labels, prepare_manual_labels
 
 
 def generate_synthetic_sample(
@@ -166,9 +168,9 @@ def generate_synthetic_sample(
                     "readme_text": tpl["readme"],
                     "tree_paths": tpl["tree"],
                     "tree_entries_count": len(tpl["tree"]),
-                    "type": None,
-                    "source": None,
-                    "labeled_by": None,
+                    "type": cls_name,
+                    "source": "synthetic",
+                    "labeled_by": "synthetic_generator",
                 }
             )
 
@@ -207,8 +209,8 @@ def generate_synthetic_sample(
                 "tree_paths": [],
                 "tree_entries_count": 0,
                 "type": "unclear",
-                "source": "manual",
-                "labeled_by": "statf0rd",
+                "source": "synthetic",
+                "labeled_by": "synthetic_generator",
             }
         )
 
@@ -219,66 +221,63 @@ def run_task5_pipeline(
     use_demo: bool = False,
     use_llm: bool = False,
     save_to_db: bool = True,
-) -> None:
-    project_root = Path(__file__).resolve().parents[2]
-    figures_dir = project_root / "docs" / "figures"
-
+    labels_csv: Path | None = None,
+    project_root: Path | None = None,
+) -> dict:
+    """Evaluate reviewed labels; demo mode never touches the database or final artifacts."""
+    if use_llm:
+        raise ValueError("Evaluation needs reviewed labels; it does not create automatic labels")
+    project_root = project_root or Path(__file__).resolve().parents[2]
     if use_demo:
-        print("[1/4] Генерация демо-выборки (--demo)...")
+        if labels_csv is not None:
+            raise ValueError("--demo cannot import a reviewed label CSV")
+        print("[1/3] Explicit synthetic demo; no database access")
         df = generate_synthetic_sample()
+        results_dir = project_root / "analytics-py" / "results" / "demo" / "task5"
+        figures_dir = results_dir / "figures"
     else:
-        try:
-            print("[1/4] Загрузка данных из БД...")
-            df = load_repos_for_classification()
-            if df.empty:
-                print("БД пуста. Переключаюсь на демо-выборку...")
-                df = generate_synthetic_sample()
-                save_to_db = False
-        except Exception as exc:
-            print(f"Ошибка БД ({exc}). Переключаюсь на демо-выборку...")
-            df = generate_synthetic_sample()
-            save_to_db = False
+        print("[1/3] Loading real repositories and reviewed labels from PostgreSQL")
+        df = load_repos_for_classification()
+        if df.empty:
+            raise ValueError("Database has no repositories; restore the published dataset first")
+        if labels_csv is not None:
+            labels = prepare_manual_labels(labels_csv, df)
+            if save_to_db:
+                import_manual_labels(labels_csv)
+            # Explicit CSV defines this evaluation set; labels already in the DB do not enlarge it.
+            df = df.drop(columns=["type", "source", "labeled_by"], errors="ignore").merge(
+                labels, on="repo_id", how="inner", validate="one_to_one"
+            )
+        results_dir = project_root / "analytics-py" / "results" / "task5"
+        figures_dir = project_root / "docs" / "figures"
 
-    print(f"Загружено репозиториев: {len(df)}")
-
-    print("[2/4] Выполнение разметки репозиториев...")
-    labels_df = build_labeled_dataset(df, use_llm=use_llm, labeled_by="elisey")
-    df["type"] = labels_df["type"].values
-    df["source"] = labels_df["source"].values
-    df["labeled_by"] = labels_df["labeled_by"].values
-
-    if save_to_db and not use_demo:
-        try:
-            saved_count = save_repo_labels(labels_df)
-            print(f"Сохранено меток в БД: {saved_count}")
-        except Exception as exc:
-            print(f"Предупреждение сохранения в БД: {exc}")
-
-    print("\nРаспределение классов:")
-    print(df["type"].value_counts().to_string())
-
-    print("\n[3/4] Обучение классификаторов (unclear исключается из оценки)...")
-    eval_res = train_and_evaluate_classifiers(df, target_col="type")
-
-    print("\n=== Метрики моделей ===")
-    print(eval_res["metrics_df"].to_string(index=False))
-    print(f"\n=== Лучшая модель: {eval_res['best_model_name']} ===")
-    print(eval_res["classification_report"])
-
-    print("[4/4] Сохранение графиков в docs/figures/...")
-    dist_plot, cm_plot = save_classification_figures(df, eval_res, figures_dir)
-    print(f"Готово!\n - {dist_plot}\n - {cm_plot}")
+    print("[2/3] Training CV selection, then independent held-out evaluation")
+    evaluation = train_and_evaluate_classifiers(df, demo=use_demo)
+    if labels_csv is not None:
+        evaluation["manifest"]["label_csv"] = labels_csv.name
+        evaluation["manifest"]["label_csv_sha256"] = hashlib.sha256(
+            labels_csv.read_bytes()
+        ).hexdigest()
+        evaluation["manifest"]["provenance"] = (
+            "LLM-proposed labels reviewed by Stanislav Rushkevich"
+        )
+    print(evaluation["metrics_df"].to_string(index=False))
+    print(evaluation["test_metrics_df"].to_string(index=False))
+    print(evaluation["classification_report"])
+    print("[3/3] Saving evaluation provenance, scores and figures")
+    save_evaluation_results(evaluation, results_dir)
+    save_classification_figures(evaluation["reviewed_df"], evaluation, figures_dir)
+    return evaluation
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Task 5: Classification")
-    parser.add_argument("--demo", action="store_true", help="Демо-режим")
-    parser.add_argument("--llm", action="store_true", help="Использовать LLM API")
-    parser.add_argument("--no-save", action="store_true", help="Не сохранять в БД")
+    parser = argparse.ArgumentParser(description="Task 5: reviewed-label classification evaluation")
+    parser.add_argument("--demo", action="store_true", help="Explicit demo with separate output")
+    parser.add_argument("--labels-csv", type=Path, help="Human-reviewed CSV to match and import")
+    parser.add_argument("--no-save", action="store_true", help="Evaluate CSV without saving to DB")
     args = parser.parse_args()
-
     run_task5_pipeline(
         use_demo=args.demo,
-        use_llm=args.llm,
         save_to_db=not args.no_save,
+        labels_csv=args.labels_csv,
     )

@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Optional
 
 from dotenv import load_dotenv
-from sqlalchemy import Engine, create_engine
+from sqlalchemy import URL, Engine, create_engine
 
 
 def _load_project_env() -> None:
@@ -34,7 +34,10 @@ def get_connection_url(dotenv_path: Optional[str] = None) -> str:
     port = os.getenv("POSTGRES_PORT", "5432")
     db = os.getenv("POSTGRES_DB", "ghanalytics")
 
-    return f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{db}"
+    return URL.create(
+        "postgresql+psycopg2", username=user, password=password,
+        host=host, port=int(port), database=db,
+    ).render_as_string(hide_password=False)
 
 
 def get_engine(url: Optional[str] = None) -> Engine:

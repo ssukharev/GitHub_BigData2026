@@ -114,23 +114,20 @@ def load_repos_for_classification(engine: Optional[Engine] = None) -> pd.DataFra
     """
     df = pd.read_sql_query(text(query), eng)
 
-    try:
-        labels_df = load_repo_labels(eng)
-        if not labels_df.empty:
-            priority = {"manual": 0, "llm": 1, "heuristic": 2}
-            labels_df = labels_df.assign(
-                _prio=labels_df["source"].map(priority).fillna(9)
-            ).sort_values("_prio").drop_duplicates("repo_id", keep="first")
-            df = df.merge(
-                labels_df[["repo_id", "type", "source", "labeled_by"]],
-                on="repo_id",
-                how="left",
-            )
-        else:
-            df["type"] = None
-            df["source"] = None
-            df["labeled_by"] = None
-    except Exception:
+    # A missing table or failed query is an error, not an unlabelled data set.
+    labels_df = load_repo_labels(eng)
+    if not labels_df.empty:
+        priority = {"manual": 0, "llm": 1, "heuristic": 2}
+        labels_df = labels_df.assign(
+            _prio=labels_df["source"].map(priority).fillna(9)
+        ).sort_values("_prio", kind="stable").drop_duplicates("repo_id", keep="first")
+        df = df.merge(
+            labels_df[["repo_id", "type", "source", "labeled_by"]],
+            on="repo_id",
+            how="left",
+            validate="one_to_one",
+        )
+    else:
         df["type"] = None
         df["source"] = None
         df["labeled_by"] = None

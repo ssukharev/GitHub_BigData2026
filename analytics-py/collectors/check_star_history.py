@@ -1,6 +1,7 @@
+import datetime as dt
 import os
 import time
-import datetime as dt
+
 import requests
 from dotenv import load_dotenv
 
@@ -60,7 +61,8 @@ REPOS = [
     "Bush2021/edge_installer"
 ]
 
-d = lambda ts: dt.datetime.fromtimestamp(ts, dt.timezone.utc).date()
+def d(ts):
+    return dt.datetime.fromtimestamp(ts, dt.timezone.utc).date()
 
 for repo in REPOS:
     try:

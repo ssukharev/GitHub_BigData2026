@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 from sqlalchemy import create_engine, text
+from sqlalchemy.engine import make_url
 
 from ghdata.classification import (
     REPO_TYPES,
@@ -26,6 +27,12 @@ def test_get_connection_url_from_env(monkeypatch):
 
     url = get_connection_url()
     assert url == "postgresql+psycopg2://test_user:test_pass@localhost:5439/test_db"
+
+
+def test_connection_url_preserves_special_password_characters(monkeypatch):
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setenv("POSTGRES_PASSWORD", "test@:/?#% password")
+    assert make_url(get_connection_url()).password == "test@:/?#% password"
 
 
 def test_heuristic_labeling_recognizes_types():
@@ -96,7 +103,7 @@ def test_feature_extraction_and_classifier_pipeline(tmp_path: Path):
         for j in range(12):
             rows.append(
                 {
-                    "repo_id": idx * 100 + j,
+                    "repo_id": idx * 100 + j + 1,
                     "full_name": f"user/{repo_type}-repo-{j}",
                     "owner_type": "User",
                     "description": f"Repository for {repo_type} project {j}",
@@ -169,19 +176,21 @@ def test_feature_extraction_and_classifier_pipeline(tmp_path: Path):
 
     # Проставим истинные синтетические классы (7 классов + 'unclear')
     df["type"] = [r["topics"][0] if r["topics"] else "unclear" for r in rows]
+    df["source"] = "synthetic"
+    df["labeled_by"] = "test_generator"
 
     feats = extract_features_dataframe(df)
     assert "combined_text" in feats.columns
     assert "log_stars" in feats.columns
     assert len(feats) == len(df)
 
-    eval_res = train_and_evaluate_classifiers(df, target_col="type", test_size=0.25)
+    eval_res = train_and_evaluate_classifiers(df, target_col="type", test_size=0.25, demo=True)
     assert "unclear" not in eval_res["labels"]
     assert set(eval_res["labels"]) == set(REPO_TYPES)
     assert eval_res["best_model_name"] in (
         "LogisticRegression", "LinearSVC", "RandomForest"
     )
-    assert eval_res["metrics_df"]["test_accuracy"].max() >= 0.7
+    assert eval_res["test_metrics_df"].iloc[0]["test_accuracy"] >= 0.7
 
     dist_path, cm_path = save_classification_figures(df, eval_res, tmp_path)
     assert dist_path.is_file()
