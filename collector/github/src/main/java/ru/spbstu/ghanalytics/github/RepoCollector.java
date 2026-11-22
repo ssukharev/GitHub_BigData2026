@@ -98,7 +98,7 @@ public class RepoCollector implements Collector {
             windows = List.copyOf(windows);
         }
 
-        /** Population of the month per repository taken: how many repositories one row stands for. */
+        /** Poststratification factor N/n; quota stopping means it is not an inverse inclusion probability. */
         double weight() {
             return sampled == 0 ? 0 : (double) population / sampled;
         }
@@ -305,7 +305,6 @@ public class RepoCollector implements Collector {
         }
         stats.inc(WINDOWS_FETCHED);
         boolean savedCursor = cursor != null;
-        boolean firstPage = true;
         while (true) {
             JsonNode search;
             try {
@@ -324,11 +323,10 @@ public class RepoCollector implements Collector {
             }
             savedCursor = false;
             int count = search.path("repositoryCount").asInt(0);
-            if (firstPage && count > SearchSlicer.MAX_RESULTS) {
-                log.warn("{}: {} repositories, search returns only the first {}", createdQualifier, count,
-                        SearchSlicer.MAX_RESULTS);
+            if (count > SearchSlicer.MAX_RESULTS) {
+                throw new IllegalStateException(createdQualifier + ": " + count + " repositories exceeds the search limit "
+                        + SearchSlicer.MAX_RESULTS + "; split the window before collecting a complete sample");
             }
-            firstPage = false;
             taken += savePage(search.path("nodes"));
 
             JsonNode pageInfo = search.path("pageInfo");
