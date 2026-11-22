@@ -1,15 +1,13 @@
 package ru.spbstu.ghanalytics.github;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.util.ArrayList;
 import java.util.List;
 
 /**
  * Splits a range of creation dates into slices that GitHub search can return completely:
  * one query gives at most {@link #MAX_RESULTS} repositories, whatever {@code repositoryCount} says.
- * A range with more is halved, and both halves are sliced again.
+ * A range with more is halved, and both halves are sliced again. A single day that still
+ * exceeds the limit fails the entire plan: returning it would silently truncate collection.
  * <p>
  * A slice is only a box that can be taken whole. The order of results inside it is GitHub's
  * best match, which for a query of qualifiers only is stars descending, so the first N
@@ -23,8 +21,6 @@ public class SearchSlicer {
 
     public static final int MAX_RESULTS = 1000;
 
-    private static final Logger log = LoggerFactory.getLogger(SearchSlicer.class);
-
     private final RepoCounter counter;
 
     public SearchSlicer(RepoCounter counter) {
@@ -32,9 +28,11 @@ public class SearchSlicer {
     }
 
     /**
-     * Slices in date order, without gaps or overlaps. Each has at most {@link #MAX_RESULTS}
-     * repositories, except a single day with more, which is returned as is with a warning:
-     * only its first {@link #MAX_RESULTS} results are reachable through search.
+     * Slices in date order, without gaps or overlaps. Every returned slice has at most
+     * {@link #MAX_RESULTS} repositories. The complete plan is built before any slice is returned.
+     *
+     * @throws IllegalStateException if a single day still exceeds the limit; this day-only
+     *                               slicer cannot represent finer creation-time windows
      */
     public List<DateRange> slice(DateRange range) {
         List<DateRange> out = new ArrayList<>();
@@ -49,10 +47,9 @@ public class SearchSlicer {
             return;
         }
         if (range.isSingleDay()) {
-            log.warn("{}: {} repositories in one day, search returns only the first {}",
-                    range.from(), count, MAX_RESULTS);
-            out.add(range);
-            return;
+            throw new IllegalStateException("cannot collect " + range.from() + " completely: " + count
+                    + " repositories exceed the search limit of " + MAX_RESULTS
+                    + " in one day; use finer creation-time windows");
         }
         for (DateRange half : range.split()) {   // left before right: the order of dates is kept
             sliceInto(half, counter.count(half), out);
