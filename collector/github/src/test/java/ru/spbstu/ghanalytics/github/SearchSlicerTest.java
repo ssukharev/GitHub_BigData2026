@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** {@link SearchSlicer} on a fake {@link RepoCounter}: counts are given as data, no API. */
 class SearchSlicerTest {
@@ -68,28 +69,32 @@ class SearchSlicerTest {
     }
 
     @Test
-    void singleDayOverThresholdIsReturnedAsIs() {
+    void singleDayOverThresholdFailsInsteadOfReturningATruncatedSlice() {
         List<DateRange> calls = new ArrayList<>();
         DateRange day = new DateRange(LocalDate.of(2021, 3, 15), LocalDate.of(2021, 3, 15));
         SearchSlicer slicer = new SearchSlicer(uniform(5000, calls));
 
-        assertThat(slicer.slice(day)).containsExactly(day);
+        assertThatThrownBy(() -> slicer.slice(day))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("2021-03-15")
+                .hasMessageContaining("5000")
+                .hasMessageContaining("1000")
+                .hasMessageContaining("completely");
         assertThat(calls).containsExactly(day);
     }
 
     @Test
-    void spikeDayIsIsolated() {
+    void spikeDayAbortsTheWholePlanBeforeAnySliceReachesTheCaller() {
         LocalDate spike = LocalDate.of(2021, 3, 15);
         RepoCounter counter = r -> (int) r.days() * 10
                 + (!spike.isBefore(r.from()) && !spike.isAfter(r.to()) ? 5000 : 0);
 
-        List<DateRange> slices = new SearchSlicer(counter).slice(MARCH);
+        List<DateRange> collected = new ArrayList<>();
 
-        assertThat(slices).contains(new DateRange(spike, spike));
-        assertThat(slices).filteredOn(s -> !s.isSingleDay() || !s.from().equals(spike))
-                .allSatisfy(s -> assertThat(counter.count(s)).isLessThanOrEqualTo(SearchSlicer.MAX_RESULTS));
-        assertThat(slices.getFirst().from()).isEqualTo(MARCH.from());
-        assertThat(slices.getLast().to()).isEqualTo(MARCH.to());
+        assertThatThrownBy(() -> new SearchSlicer(counter).slice(MARCH).forEach(collected::add))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("2021-03-15");
+        assertThat(collected).as("no safe prefix or oversized day is exposed as a complete plan").isEmpty();
     }
 
     @Test

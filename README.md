@@ -37,6 +37,10 @@ entries) and `core.readmes` (NULL text: the repository has no README); raw Graph
 to `raw.github_responses`. A second run with the same options updates the same rows.
 With `COLLECTOR_GITHUB_TOKENS` set, `mvn verify` also runs the live GitHub tests.
 
+Search-planning utilities (`DateRange`, `GitHubRepoCounter`, `SearchSlicer`) split creation-date
+plans into fully reachable slices of at most 1000 matches. If even one day exceeds that limit,
+the entire plan fails before returning slices; this day-only utility does not split into hours.
+
 Options: `--from=YYYY-MM-DD` (default 2018-01-01), `--to=YYYY-MM-DD` (default today),
 `--min-stars=N`, `--limit=N` (0 = no limit), `--resume`.
 Exit codes: 0 success, 1 the collector failed, 2 invalid arguments or unknown source.
