@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!-- Spring Boot manages versions of all libraries and plugins -->
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.5.16</version>
+        <relativePath/> <!-- take it from Maven Central, not from a local file -->
+    </parent>
+
+    <groupId>ru.spbstu.ghanalytics</groupId>
+    <artifactId>github-analytics</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <packaging>pom</packaging> <!-- this pom builds no jar itself, it only groups modules -->
+
+    <modules>
+        <module>collector/core</module>
+        <module>collector/github</module>
+        <module>collector/gharchive</module>
+        <module>collector/app</module>
+        <!-- Sergey adds collector/worldbank and collector/innovation-graph in his PR -->
+    </modules>
+
+    <properties>
+        <java.version>21</java.version>
+    </properties>
+
+    <!-- Catalog of our own modules: children reference them without a version -->
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>ru.spbstu.ghanalytics</groupId>
+                <artifactId>collector-core</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>ru.spbstu.ghanalytics</groupId>
+                <artifactId>collector-github</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>ru.spbstu.ghanalytics</groupId>
+                <artifactId>collector-gharchive</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <!-- Inherited by every module: JUnit 5, AssertJ, Mockito for tests -->
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- Fails early with a clear message on a wrong Java or an old Maven -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>enforce-build-env</id>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <requireJavaVersion>
+                                    <version>[21,)</version>
+                                </requireJavaVersion>
+                                <requireMavenVersion>
+                                    <version>[3.9,)</version>
+                                </requireMavenVersion>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <!-- Runs *IT integration tests (Docker needed) in the verify phase;
+                 executions come from spring-boot-starter-parent -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>
