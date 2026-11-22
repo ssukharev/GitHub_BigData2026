@@ -41,5 +41,18 @@ Options: `--from=YYYY-MM-DD` (default 2018-01-01), `--to=YYYY-MM-DD` (default to
 `--min-stars=N`, `--limit=N` (0 = no limit), `--resume`.
 Exit codes: 0 success, 1 the collector failed, 2 invalid arguments or unknown source.
 
+GH Archive aggregates (`core.gh_activity_hourly`, `core.gh_activity_monthly`) come from the public
+ClickHouse copy at play.clickhouse.com, no account needed. The quota of the playground is shared by
+everyone behind one IP address (300 billion rows read per hour), and the full load takes about a third
+of it, so agree in the chat before you run it:
+
+```bash
+java -jar collector/app/target/collector.jar --source=gharchive --from=2018-01-01 --to=2026-07-31
+java -jar collector/app/target/collector.jar --source=gharchive --from=2018-01-01 --to=2026-07-31 --resume  # after a stop
+```
+
+The period is cut to `collector.gharchive.to` (2026-07-31, override with `--collector.gharchive.to=...`).
+Limits of the series: [docs/gharchive-limits.md](docs/gharchive-limits.md).
+
 The collector applies the same Flyway migrations on start. Data sources are plugged in
 as Spring beans implementing `Collector`; each one writes its run to `core.collection_runs`.

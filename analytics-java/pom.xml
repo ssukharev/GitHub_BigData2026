@@ -15,8 +15,13 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <postgresql.version>42.7.14</postgresql.version>
         <tablesaw.version>0.44.4</tablesaw.version>
+        <commons-math.version>3.6.1</commons-math.version>
+        <xchart.version>3.8.8</xchart.version>
         <junit.version>5.10.0</junit.version>
-        <exec.mainClass>ru.spbstu.ghanalytics.analytics.task3.Task3Main</exec.mainClass>
+        <testcontainers.version>2.0.5</testcontainers.version>
+        <!-- same major version as the flyway/flyway:11 image in docker-compose.yml -->
+        <flyway.version>11.20.3</flyway.version>
+        <exec.mainClass>ru.spbstu.ghanalytics.analytics.Main</exec.mainClass>
     </properties>
 
     <dependencies>
@@ -30,11 +35,39 @@
             <artifactId>tablesaw-core</artifactId>
             <version>${tablesaw.version}</version>
         </dependency>
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-math3</artifactId>
+            <version>${commons-math.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.knowm.xchart</groupId>
+            <artifactId>xchart</artifactId>
+            <version>${xchart.version}</version>
+        </dependency>
 
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
             <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-postgresql</artifactId>
+            <version>${testcontainers.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+            <version>${flyway.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-simple</artifactId>
+            <version>2.0.20</version>
             <scope>test</scope>
         </dependency>
     </dependencies>
@@ -46,7 +79,7 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.5.2</version>
             </plugin>
-            <!-- mvn -q compile exec:java : task 3 tables from the database in .env -->
+            <!-- mvn -q compile exec:java [-Dexec.args=task1|task3] : result tables from the database in .env -->
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>exec-maven-plugin</artifactId>
