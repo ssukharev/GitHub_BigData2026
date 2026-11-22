@@ -17,7 +17,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 
-/** Task 1 tables, written as CSV to {@code out}. Started from {@link ru.spbstu.ghanalytics.analytics.Main}. */
+/**
+ * Task 1 tables, written as CSV to {@code out}, and figures (PNG) to {@code figures}.
+ * Started from {@link ru.spbstu.ghanalytics.analytics.Main}.
+ */
 public final class Task1Main {
 
     /**
@@ -41,7 +44,7 @@ public final class Task1Main {
     private Task1Main() {
     }
 
-    public static void run(DbConfig db, Path out) throws SQLException, IOException {
+    public static void run(DbConfig db, Path out, Path figures) throws SQLException, IOException {
         Table activity;
         Table topicsByQuarter;
         AiActivity.CountryShares byCountry;
@@ -106,6 +109,8 @@ public final class Task1Main {
         review[2].write().csv(out.resolve("ai_topic_groups.csv").toFile());
         review[0].write().csv(out.resolve("ai_topic_review.csv").toFile());
         review[1].write().csv(out.resolve("non_thematic_topics.csv").toFile());
+        List<Path> charts = Task1Charts.write(activity, byQuarter, byCountry.table(), countryQuarter,
+                byCountry.commonTopics().size(), figures);
 
         System.out.printf("Task 1: %s..%s, %d quarters; CSV written to %s%n",
                 first, last, activity.rowCount(), out.toAbsolutePath());
@@ -114,6 +119,7 @@ public final class Task1Main {
         System.out.println(countries.print());
         System.out.println("common topics: " + byCountry.commonTopics());
         System.out.println(regressions.print());
+        charts.forEach(c -> System.out.println("figure: " + c.toAbsolutePath().normalize()));
     }
 
     /** The same series around Copilot preview, ChatGPT and coding agents, each in its own window. */
