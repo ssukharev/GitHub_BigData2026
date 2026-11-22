@@ -1,0 +1,17 @@
+spring:
+  application:
+    name: collector            # application name in logs
+  main:
+    web-application-type: none # console application: no web server
+  datasource:
+    url: jdbc:postgresql://localhost:5432/ghanalytics   # overridden by SPRING_DATASOURCE_URL
+    username: gha                                       # overridden by SPRING_DATASOURCE_USERNAME
+    # no password here: it comes only from the SPRING_DATASOURCE_PASSWORD environment variable
+  flyway:
+    locations: classpath:db/migration                   # migrations from collector/core
+    validate-migration-naming: true                     # a badly named migration is an error, not silence
+collector:
+  github:
+    graphql-url: https://api.github.com/graphql
+    rest-url: https://api.github.com
+    # no tokens here: they come only from COLLECTOR_GITHUB_TOKENS (comma-separated)

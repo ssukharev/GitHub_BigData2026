@@ -4,13 +4,13 @@
 
 ## Источники
 
-| Источник | Что берём | Задачи |
-|---|---|---|
-| GH Archive через BigQuery (запасной вариант - `github_events` на play.clickhouse.com) | готовые агрегаты событий (push, create repo, PR, star) по дням и часам | 1, 2 |
-| GitHub API (GraphQL) | выборка репозиториев: метаданные, topics, README, флаги тестов/CI/Docker, активность коммитов | 1, 4, 5 |
-| GitHub API (REST, `/stargazers/history`) | история звёзд по дням | 4 |
-| GitHub Innovation Graph | разработчики по странам и кварталам | 1, 3 |
-| World Bank API | население по странам и годам | 3 |
+| Источник                                                                              | Что берём                                                                                     | Задачи  |
+| ------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- | ------- |
+| GH Archive через BigQuery (запасной вариант - `github_events` на play.clickhouse.com) | готовые агрегаты событий (push, create repo, PR, star) по дням и часам                        | 1, 2    |
+| GitHub API (GraphQL)                                                                  | выборка репозиториев: метаданные, topics, README, флаги тестов/CI/Docker, активность коммитов | 1, 4, 5 |
+| GitHub API (REST, `/stargazers/history`)                                              | история звёзд по дням                                                                         | 4       |
+| GitHub Innovation Graph                                                               | разработчики по странам и кварталам                                                           | 1, 3    |
+| World Bank API                                                                        | население по странам и годам                                                                  | 3       |
 
 ## Стек
 
@@ -25,28 +25,29 @@
 
 Слои: `raw` - сырые ответы API в JSONB, `core` - очищенные таблицы, `marts` - представления под задачи.
 
-| Таблица | Поля | Ключ | Наполняет | Читает |
-|---|---|---|---|---|
-| `raw.github_responses` | id, source, request_key, fetched_at, payload (jsonb) | id | Стас | Стас |
-| `core.repos` | id (= databaseId), node_id, full_name, owner_type, is_fork, is_archived, description, created_at, pushed_at, language, stars, forks, license, topics[], has_tests, has_ci, has_docker, size_kb, collected_at | id | Стас | все |
-| `core.readmes` | repo_id, text, collected_at | repo_id → repos | Стас | Елисей |
-| `core.repo_commits_weekly` | repo_id, week, commits, contributors (может быть NULL) | (repo_id, week) | Стас | Антон, Сергей |
-| `core.gh_activity_hourly` | ts_hour, event_type, is_bot, events, actors, commits | (ts_hour, event_type, is_bot) | Стас (GH Archive) | Антон, Сергей |
-| `core.gh_activity_monthly` | month, event_type, is_bot, events, actors, repos, commits | (month, event_type, is_bot) | Стас (GH Archive) | Сергей |
-| `core.countries` | country_code (ISO-2), iso3_code, name, region, is_aggregate | country_code | Сергей | Сергей |
-| `core.innovation_graph` | country_code, year, quarter, developers, repositories, git_pushes | (country_code, year, quarter) | Сергей | Сергей |
-| `core.innovation_graph_topics` | country_code, year, quarter, topic, pushers | (country_code, year, quarter, topic) | Сергей | Сергей |
-| `core.population` | country_code, year, population (bigint) | (country_code, year) | Сергей | Сергей |
-| `core.star_history_daily` | repo_id, day, stars | (repo_id, day) | Антон | Антон |
-| `core.repo_labels` | repo_id, type, source (manual/llm), labeled_by | repo_id | Елисей | Елисей |
-| `core.collection_runs` | id, source, started_at, finished_at, rows, status, error | id | все сборщики | отладка |
-| `core.checkpoints` | source, key, value, updated_at | (source, key) | сборщики | сборщики |
+| Таблица                        | Поля                                                                                                                                                                                                         | Ключ                                 | Наполняет         | Читает        |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------ | ----------------- | ------------- |
+| `raw.github_responses`         | id, source, request_key, fetched_at, payload (jsonb)                                                                                                                                                         | id                                   | Стас              | Стас          |
+| `core.repos`                   | id (= databaseId), node_id, full_name, owner_type, is_fork, is_archived, description, created_at, pushed_at, language, stars, forks, license, topics[], has_tests, has_ci, has_docker, size_kb, collected_at | id                                   | Стас              | все           |
+| `core.readmes`                 | repo_id, text, collected_at                                                                                                                                                                                  | repo_id → repos                      | Стас              | Елисей        |
+| `core.repo_commits_weekly`     | repo_id, week, commits, contributors (может быть NULL)                                                                                                                                                       | (repo_id, week)                      | Стас              | Антон, Сергей |
+| `core.gh_activity_hourly`      | ts_hour, event_type, is_bot, events, actors, commits                                                                                                                                                         | (ts_hour, event_type, is_bot)        | Стас (GH Archive) | Антон, Сергей |
+| `core.gh_activity_monthly`     | month, event_type, is_bot, events, actors, repos, commits                                                                                                                                                    | (month, event_type, is_bot)          | Стас (GH Archive) | Сергей        |
+| `core.countries`               | country_code (ISO-2), iso3_code, name, region, is_aggregate                                                                                                                                                  | country_code                         | Сергей            | Сергей        |
+| `core.innovation_graph`        | country_code, year, quarter, developers, repositories, git_pushes                                                                                                                                            | (country_code, year, quarter)        | Сергей            | Сергей        |
+| `core.innovation_graph_topics` | country_code, year, quarter, topic, pushers                                                                                                                                                                  | (country_code, year, quarter, topic) | Сергей            | Сергей        |
+| `core.population`              | country_code, year, population (bigint)                                                                                                                                                                      | (country_code, year)                 | Сергей            | Сергей        |
+| `core.star_history_daily`      | repo_id, day, new_stars                                                                                                                                                                                      | (repo_id, day)                       | Антон             | Антон         |
+| `core.repo_labels`             | repo_id, type, source (manual/llm), labeled_by                                                                                                                                                               | repo_id                              | Елисей            | Елисей        |
+| `core.collection_runs`         | id, source, started_at, finished_at, rows, status, error                                                                                                                                                     | id                                   | все сборщики      | отладка       |
+| `core.checkpoints`             | source, key, value, updated_at                                                                                                                                                                               | (source, key)                        | сборщики          | сборщики      |
 
 Семантика полей:
+
 - `is_bot` - автор события с суффиксом `[bot]` (GitHub Apps)
 - `commits` - число коммитов в PushEvent (суммируется по событиям), `actors` - число уникальных авторов событий; `actors` по часам не суммируется
 - `repos.stars`, `forks`, `pushed_at`, `size_kb` - значения на момент `collected_at`; как признаки для прогноза не использовать, брать `star_history_daily` и `repo_commits_weekly` до даты отсечки
-- `star_history_daily.stars` - кумулятивное число звёзд на конец дня, строка на каждый день
+- `star_history_daily.new_stars` - новые звёзды за дневную корзину API (не кумулятивные); накопленное число: `SUM(new_stars) OVER (PARTITION BY repo_id ORDER BY day)`. `day` - метка корзины: UTC-дата исходного `week` плюс индекс `days[]`. Границы недели и дня API не гарантированы в UTC, поэтому эти значения нельзя считать точными UTC-днями или напрямую совмещать с воскресными UTC-неделями коммитов. При обновлении снимка прошлые значения могут измениться. Источник: [GitHub REST API](https://docs.github.com/en/rest/activity/starring?apiVersion=2026-03-10#get-repository-star-history).
 - `countries.country_code` - ISO-2; у агрегатов World Bank (World, EU, группы по доходу) свои коды (`1W`, `ZH`), у них `is_aggregate = true` и `region` пустой. Коды Innovation Graph, которых нет в World Bank (`TW` и др.), добавлены в справочник миграцией
 - `innovation_graph.developers` и `repositories` - на конец квартала, `git_pushes` - за квартал, `pushers` в `innovation_graph_topics` - уникальные разработчики страны, пушившие в репозитории с этим топиком. Метрика `NULL`, если GitHub её не опубликовал (меньше 100 разработчиков); в `innovation_graph` нет FK на `countries`, неизвестные коды сверяет сборщик
 - строки `EU` в Innovation Graph - агрегат, с отдельными странами ЕС их суммировать нельзя
