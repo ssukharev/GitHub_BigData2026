@@ -1,6 +1,8 @@
 package ru.spbstu.ghanalytics.app;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.DefaultApplicationArguments;
 
 import java.time.LocalDate;
@@ -66,6 +68,15 @@ class CollectorArgsTest {
         assertThatThrownBy(() -> parse("--source=worldbank", "--limit=many"))
                 .isInstanceOf(InvalidArgumentsException.class)
                 .hasMessageContaining("--limit");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"--from", "--to", "--min-stars", "--limit"})
+    void rejectsOptionalArgumentWithoutAValue(String option) {
+        assertThatThrownBy(() -> parse("--source=github-repos", option))
+                .isInstanceOf(InvalidArgumentsException.class)
+                .hasMessageContaining(option)
+                .hasMessageContaining("requires a value");
     }
 
     @Test

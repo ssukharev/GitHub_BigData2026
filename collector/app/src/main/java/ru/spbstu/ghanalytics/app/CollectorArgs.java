@@ -73,8 +73,11 @@ public record CollectorArgs(String source, CollectionContext context) {
 
     private static String single(ApplicationArguments args, String name) {
         List<String> values = args.getOptionValues(name);
-        if (values == null || values.isEmpty()) {
+        if (values == null) {
             return null;
+        }
+        if (values.isEmpty()) {
+            throw new InvalidArgumentsException("--" + name + " requires a value: use --" + name + "=value");
         }
         if (values.size() > 1) {
             throw new InvalidArgumentsException("--" + name + " is given " + values.size() + " times");

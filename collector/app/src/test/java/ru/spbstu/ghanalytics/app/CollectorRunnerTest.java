@@ -1,6 +1,8 @@
 package ru.spbstu.ghanalytics.app;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.DefaultApplicationArguments;
 import ru.spbstu.ghanalytics.core.CollectionContext;
 import ru.spbstu.ghanalytics.core.Collector;
@@ -103,6 +105,19 @@ class CollectorRunnerTest {
 
         assertThat(runner.getExitCode()).isEqualTo(CollectorRunner.INVALID_ARGUMENTS);
         assertThat(worldbank.calls).isEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"--from", "--to", "--min-stars", "--limit",
+            "--from=", "--to=", "--min-stars=", "--limit="})
+    void missingOptionValuesNeverStartTheCollector(String option) {
+        FakeCollector repos = new FakeCollector("github-repos", false);
+        CollectorRunner runner = runner(repos);
+
+        runner.run(args("--source=github-repos", option));
+
+        assertThat(runner.getExitCode()).isEqualTo(CollectorRunner.INVALID_ARGUMENTS);
+        assertThat(repos.calls).isEmpty();
     }
 
     @Test
