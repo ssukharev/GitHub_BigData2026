@@ -25,10 +25,11 @@ final class Task3Charts {
         // fixed order = fixed color slot
         REGIONS.put("North America", "Северная Америка");
         REGIONS.put("Europe & Central Asia", "Европа и Центральная Азия");
-        REGIONS.put("Latin America & Caribbean", "Латинская Америка");
-        REGIONS.put("East Asia & Pacific", "Восточная Азия и Океания");
+        REGIONS.put("Latin America & Caribbean", "Латинская Америка и Карибский бассейн");
+        REGIONS.put("East Asia & Pacific", "Восточная Азия и Тихоокеанский регион");
         REGIONS.put("South Asia", "Южная Азия");
-        REGIONS.put("Middle East, North Africa, Afghanistan & Pakistan", "Ближний Восток и Северная Африка");
+        REGIONS.put("Middle East, North Africa, Afghanistan & Pakistan",
+                "Ближний Восток, Северная Африка, Афганистан и Пакистан");
         REGIONS.put("Sub-Saharan Africa", "Африка южнее Сахары");
     }
 
@@ -83,7 +84,7 @@ final class Task3Charts {
      * its English name in the next free slot, and reported, so a line never silently disappears.
      */
     private static XYChart regions(Table regions) {
-        XYChart chart = Charts.lines("Разработчики GitHub на 1000 жителей по регионам (без Гонконга и Сингапура)",
+        XYChart chart = Charts.lines("GitHub по регионам, без Гонконга и Сингапура",
                 "", "разработчиков на 1000 жителей");
         Map<String, String> names = new LinkedHashMap<>(REGIONS);
         for (String region : new TreeSet<>(regions.stringColumn("region").asSet())) {
