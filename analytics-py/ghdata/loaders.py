@@ -206,7 +206,7 @@ def load_star_history_daily(
     eng = engine or get_engine()
     where_clause = "WHERE day <= :cutoff" if cutoff_date else ""
     query = f"""
-        SELECT repo_id, day, stars
+        SELECT repo_id, day, new_stars
         FROM core.star_history_daily
         {where_clause}
         ORDER BY repo_id, day

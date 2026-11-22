@@ -32,6 +32,9 @@ dumps/
 .idea/
 *.iml
 
+# Maven
+target/
+
 # Python
 .venv/
 venv/
