@@ -18,6 +18,8 @@ def engine():
     if not url:
         pytest.skip("TASK5_TEST_DATABASE_URL must point to an isolated migrated test database")
     engine = create_engine(url)
+    if not (engine.url.database or "").startswith("task5_review_"):
+        pytest.fail("PostgreSQL checks require an isolated database named task5_review_*")
     with engine.begin() as conn:
         for ident, name in zip(IDS, ["task5-review/a", "task5-review/b"]):
             conn.execute(text("""
