@@ -1,0 +1,581 @@
+{
+  "data": {
+    "rateLimit": {
+      "limit": 5000,
+      "cost": 1,
+      "remaining": 4992,
+      "resetAt": "2026-11-16T12:59:51Z"
+    },
+    "search": {
+      "repositoryCount": 17937,
+      "pageInfo": {
+        "hasNextPage": true,
+        "endCursor": "Y3Vyc29yOjM="
+      },
+      "nodes": [
+        {
+          "databaseId": 743230067,
+          "fullDatabaseId": "743230067",
+          "id": "R_kgDOLEzKcw",
+          "nameWithOwner": "RVC-Boss/GPT-SoVITS",
+          "owner": {
+            "__typename": "User"
+          },
+          "isFork": false,
+          "isArchived": false,
+          "description": "1 min voice data can also be used to train a good TTS model! (few shot voice cloning)",
+          "createdAt": "2024-01-14T18:05:21Z",
+          "pushedAt": "2026-11-11T16:26:18Z",
+          "primaryLanguage": {
+            "name": "Python"
+          },
+          "stargazerCount": 65218,
+          "forkCount": 6808,
+          "licenseInfo": {
+            "spdxId": "MIT"
+          },
+          "repositoryTopics": {
+            "nodes": [
+              {
+                "topic": {
+                  "name": "text-to-speech"
+                }
+              },
+              {
+                "topic": {
+                  "name": "tts"
+                }
+              },
+              {
+                "topic": {
+                  "name": "vits"
+                }
+              },
+              {
+                "topic": {
+                  "name": "voice-clone"
+                }
+              },
+              {
+                "topic": {
+                  "name": "voice-cloneai"
+                }
+              },
+              {
+                "topic": {
+                  "name": "voice-cloning"
+                }
+              }
+            ]
+          },
+          "diskUsage": 14906,
+          "archivedAt": null,
+          "isTemplate": false,
+          "isMirror": false,
+          "isEmpty": false,
+          "hasIssuesEnabled": true,
+          "homepageUrl": "",
+          "openIssues": {
+            "totalCount": 801
+          },
+          "closedIssues": {
+            "totalCount": 1264
+          },
+          "openPrs": {
+            "totalCount": 111
+          },
+          "mergedPrs": {
+            "totalCount": 371
+          },
+          "closedPrs": {
+            "totalCount": 203
+          },
+          "releases": {
+            "totalCount": 4
+          },
+          "latestRelease": {
+            "publishedAt": "2025-06-06T03:04:27Z"
+          },
+          "watchers": {
+            "totalCount": 313
+          },
+          "languages": {
+            "totalSize": 1922300,
+            "edges": [
+              {
+                "size": 1886910,
+                "node": {
+                  "name": "Python"
+                }
+              },
+              {
+                "size": 17274,
+                "node": {
+                  "name": "Shell"
+                }
+              },
+              {
+                "size": 8574,
+                "node": {
+                  "name": "PowerShell"
+                }
+              },
+              {
+                "size": 7824,
+                "node": {
+                  "name": "Jupyter Notebook"
+                }
+              },
+              {
+                "size": 1550,
+                "node": {
+                  "name": "Dockerfile"
+                }
+              },
+              {
+                "size": 168,
+                "node": {
+                  "name": "Batchfile"
+                }
+              }
+            ]
+          },
+          "rootTree": {
+            "entries": [
+              {
+                "name": ".dockerignore",
+                "type": "blob"
+              },
+              {
+                "name": ".github",
+                "type": "tree"
+              },
+              {
+                "name": ".gitignore",
+                "type": "blob"
+              },
+              {
+                "name": ".pre-commit-config.yaml",
+                "type": "blob"
+              },
+              {
+                "name": "Colab-Inference.ipynb",
+                "type": "blob"
+              },
+              {
+                "name": "Colab-WebUI.ipynb",
+                "type": "blob"
+              },
+              {
+                "name": "Docker",
+                "type": "tree"
+              },
+              {
+                "name": "Dockerfile",
+                "type": "blob"
+              },
+              {
+                "name": "GPT_SoVITS",
+                "type": "tree"
+              },
+              {
+                "name": "LICENSE",
+                "type": "blob"
+              },
+              {
+                "name": "README.md",
+                "type": "blob"
+              },
+              {
+                "name": "api.py",
+                "type": "blob"
+              },
+              {
+                "name": "api_v2.py",
+                "type": "blob"
+              },
+              {
+                "name": "config.py",
+                "type": "blob"
+              },
+              {
+                "name": "docker-compose.yaml",
+                "type": "blob"
+              },
+              {
+                "name": "docker_build.sh",
+                "type": "blob"
+              },
+              {
+                "name": "docs",
+                "type": "tree"
+              },
+              {
+                "name": "extra-req.txt",
+                "type": "blob"
+              },
+              {
+                "name": "go-webui.bat",
+                "type": "blob"
+              },
+              {
+                "name": "go-webui.ps1",
+                "type": "blob"
+              },
+              {
+                "name": "install.ps1",
+                "type": "blob"
+              },
+              {
+                "name": "install.sh",
+                "type": "blob"
+              },
+              {
+                "name": "requirements-py312-win-flash_attention",
+                "type": "tree"
+              },
+              {
+                "name": "requirements.txt",
+                "type": "blob"
+              },
+              {
+                "name": "test_api_v2_streaming.py",
+                "type": "blob"
+              },
+              {
+                "name": "test_official_streaming.py",
+                "type": "blob"
+              },
+              {
+                "name": "tools",
+                "type": "tree"
+              },
+              {
+                "name": "webui.py",
+                "type": "blob"
+              }
+            ]
+          },
+          "srcTree": {},
+          "dotGithub": {
+            "entries": [
+              {
+                "name": "build_windows_packages.ps1",
+                "type": "blob"
+              },
+              {
+                "name": "workflows",
+                "type": "tree"
+              }
+            ]
+          }
+        },
+        {
+          "databaseId": 743140652,
+          "fullDatabaseId": "743140652",
+          "id": "R_kgDOLEttLA",
+          "nameWithOwner": "dockur/windows",
+          "owner": {
+            "__typename": "Organization"
+          },
+          "isFork": false,
+          "isArchived": false,
+          "description": "Windows inside a Docker container.\u0000",
+          "createdAt": "2024-01-14T13:09:40Z",
+          "pushedAt": "2026-11-13T20:16:49Z",
+          "primaryLanguage": null,
+          "stargazerCount": 54205,
+          "forkCount": 5156,
+          "licenseInfo": null,
+          "repositoryTopics": {
+            "nodes": []
+          },
+          "diskUsage": 2405,
+          "archivedAt": null,
+          "isTemplate": false,
+          "isMirror": false,
+          "isEmpty": false,
+          "hasIssuesEnabled": true,
+          "homepageUrl": "",
+          "openIssues": {
+            "totalCount": 18
+          },
+          "closedIssues": {
+            "totalCount": 1037
+          },
+          "openPrs": {
+            "totalCount": 3
+          },
+          "mergedPrs": {
+            "totalCount": 954
+          },
+          "closedPrs": {
+            "totalCount": 178
+          },
+          "releases": {
+            "totalCount": 128
+          },
+          "latestRelease": {
+            "publishedAt": "2026-10-05T21:30:37Z"
+          },
+          "watchers": {
+            "totalCount": 249
+          },
+          "languages": {
+            "totalSize": 654983,
+            "edges": [
+              {
+                "size": 468651,
+                "node": {
+                  "name": "Shell"
+                }
+              },
+              {
+                "size": 184385,
+                "node": {
+                  "name": "Batchfile"
+                }
+              },
+              {
+                "size": 1947,
+                "node": {
+                  "name": "Dockerfile"
+                }
+              }
+            ]
+          },
+          "rootTree": {
+            "entries": [
+              {
+                "name": ".devcontainer",
+                "type": "tree"
+              },
+              {
+                "name": ".dockerignore",
+                "type": "blob"
+              },
+              {
+                "name": ".github",
+                "type": "tree"
+              },
+              {
+                "name": ".gitignore",
+                "type": "blob"
+              },
+              {
+                "name": "Dockerfile",
+                "type": "blob"
+              },
+              {
+                "name": "assets",
+                "type": "tree"
+              },
+              {
+                "name": "compose.yml",
+                "type": "blob"
+              },
+              {
+                "name": "docs",
+                "type": "tree"
+              },
+              {
+                "name": "kubernetes.yml",
+                "type": "blob"
+              },
+              {
+                "name": "license.md",
+                "type": "blob"
+              },
+              {
+                "name": "readme.md",
+                "type": "blob"
+              },
+              {
+                "name": "src",
+                "type": "tree"
+              }
+            ]
+          },
+          "srcTree": {
+            "entries": [
+              {
+                "name": "answer.sh",
+                "type": "blob"
+              },
+              {
+                "name": "batch.sh",
+                "type": "blob"
+              },
+              {
+                "name": "define.sh",
+                "type": "blob"
+              },
+              {
+                "name": "display.sh",
+                "type": "blob"
+              },
+              {
+                "name": "entry.sh",
+                "type": "blob"
+              },
+              {
+                "name": "image.sh",
+                "type": "blob"
+              },
+              {
+                "name": "install.sh",
+                "type": "blob"
+              },
+              {
+                "name": "legacy.sh",
+                "type": "blob"
+              },
+              {
+                "name": "mido.sh",
+                "type": "blob"
+              },
+              {
+                "name": "power.sh",
+                "type": "blob"
+              },
+              {
+                "name": "samba.sh",
+                "type": "blob"
+              },
+              {
+                "name": "sif.sh",
+                "type": "blob"
+              }
+            ]
+          },
+          "dotGithub": {
+            "entries": [
+              {
+                "name": "ISSUE_TEMPLATE",
+                "type": "tree"
+              },
+              {
+                "name": "dependabot.yml",
+                "type": "blob"
+              },
+              {
+                "name": "logo.png",
+                "type": "blob"
+              },
+              {
+                "name": "renovate.json",
+                "type": "blob"
+              },
+              {
+                "name": "workflows",
+                "type": "tree"
+              }
+            ]
+          }
+        },
+        {
+          "databaseId": 737898780,
+          "fullDatabaseId": "737898780",
+          "id": "R_kgDOK_txHA",
+          "nameWithOwner": "maybe-finance/maybe",
+          "owner": {
+            "__typename": "Organization"
+          },
+          "isFork": false,
+          "isArchived": true,
+          "description": "The personal finance app for everyone",
+          "createdAt": "2024-01-01T22:23:46Z",
+          "pushedAt": "2025-07-24T22:20:44Z",
+          "primaryLanguage": {
+            "name": "Ruby"
+          },
+          "stargazerCount": 54192,
+          "forkCount": 5661,
+          "licenseInfo": {
+            "spdxId": "AGPL-3.0"
+          },
+          "repositoryTopics": {
+            "nodes": [
+              {
+                "topic": {
+                  "name": "finance"
+                }
+              },
+              {
+                "topic": {
+                  "name": "personal-finance"
+                }
+              },
+              {
+                "topic": {
+                  "name": "postgresql"
+                }
+              },
+              {
+                "topic": {
+                  "name": "hotwire"
+                }
+              },
+              {
+                "topic": {
+                  "name": "ruby"
+                }
+              },
+              {
+                "topic": {
+                  "name": "ruby-on-rails"
+                }
+              },
+              {
+                "topic": {
+                  "name": "stimulusjs"
+                }
+              },
+              {
+                "topic": {
+                  "name": "turbo"
+                }
+              }
+            ]
+          },
+          "diskUsage": 6891,
+          "archivedAt": "2025-07-27T17:39:31Z",
+          "isTemplate": false,
+          "isMirror": false,
+          "isEmpty": true,
+          "hasIssuesEnabled": false,
+          "homepageUrl": "",
+          "openIssues": {
+            "totalCount": 0
+          },
+          "closedIssues": {
+            "totalCount": 0
+          },
+          "openPrs": {
+            "totalCount": 0
+          },
+          "mergedPrs": {
+            "totalCount": 1073
+          },
+          "closedPrs": {
+            "totalCount": 302
+          },
+          "releases": {
+            "totalCount": 28
+          },
+          "latestRelease": null,
+          "watchers": {
+            "totalCount": 15
+          },
+          "languages": {
+            "totalSize": 0,
+            "edges": []
+          },
+          "rootTree": null,
+          "srcTree": null,
+          "dotGithub": null
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,52 @@
+# One page of repository search. Variables: q (search string), first (page size), cursor (null for page 1).
+# RepoFields is heavy (file trees, five issue and PR counters per node): it costs 1 point per page,
+# but GitHub cuts a query off after 10 s, so keep first at 20 or less (20 take about 7 s, 25 give 502).
+query SearchRepos($q: String!, $first: Int!, $cursor: String) {
+  rateLimit { limit cost remaining resetAt }
+  search(query: $q, type: REPOSITORY, first: $first, after: $cursor) {
+    repositoryCount
+    pageInfo { hasNextPage endCursor }
+    nodes {
+      ... on Repository { ...RepoFields }
+    }
+  }
+}
+
+# Field names and aliases are shared by all collectors: do not rename them.
+# No stargazers { starredAt }: for other people's repositories it is silently empty.
+fragment RepoFields on Repository {
+  databaseId
+  fullDatabaseId
+  id
+  nameWithOwner
+  owner { __typename }
+  isFork
+  isArchived
+  description
+  createdAt
+  pushedAt
+  primaryLanguage { name }
+  stargazerCount
+  forkCount
+  licenseInfo { spdxId }
+  repositoryTopics(first: 20) { nodes { topic { name } } }
+  diskUsage
+  archivedAt
+  isTemplate
+  isMirror
+  isEmpty
+  hasIssuesEnabled
+  homepageUrl
+  openIssues: issues(states: OPEN) { totalCount }
+  closedIssues: issues(states: CLOSED) { totalCount }
+  openPrs: pullRequests(states: OPEN) { totalCount }
+  mergedPrs: pullRequests(states: MERGED) { totalCount }
+  closedPrs: pullRequests(states: CLOSED) { totalCount }
+  releases { totalCount }
+  latestRelease { publishedAt }
+  watchers { totalCount }
+  languages(first: 10, orderBy: {field: SIZE, direction: DESC}) { totalSize edges { size node { name } } }
+  rootTree: object(expression: "HEAD:") { ... on Tree { entries { name type } } }
+  srcTree: object(expression: "HEAD:src") { ... on Tree { entries { name type } } }
+  dotGithub: object(expression: "HEAD:.github") { ... on Tree { entries { name type } } }
+}
