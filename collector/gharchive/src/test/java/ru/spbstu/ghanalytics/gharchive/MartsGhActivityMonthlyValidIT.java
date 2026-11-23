@@ -1,11 +1,13 @@
 package ru.spbstu.ghanalytics.gharchive;
 
 import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -26,20 +28,33 @@ class MartsGhActivityMonthlyValidIT {
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16");
 
     private static JdbcTemplate jdbc;
+    private static SingleConnectionDataSource sessionDataSource;
 
     @BeforeAll
     static void migrate() {
         DriverManagerDataSource dataSource =
                 new DriverManagerDataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
         Flyway.configure().dataSource(dataSource).locations("classpath:db/migration").load().migrate();
-        jdbc = new JdbcTemplate(dataSource);
+        // JdbcTemplate closes each borrowed connection. Keep one physical connection
+        // so SET TIME ZONE remains in effect for all view queries, including March DST.
+        sessionDataSource = new SingleConnectionDataSource(postgres.getJdbcUrl(),
+                postgres.getUsername(), postgres.getPassword(), true);
+        jdbc = new JdbcTemplate(sessionDataSource);
+    }
+
+    @AfterAll
+    static void closeSession() {
+        if (sessionDataSource != null) {
+            sessionDataSource.destroy();
+        }
     }
 
     @BeforeEach
     void cleanUp() {
         jdbc.update("DELETE FROM core.gh_activity_hourly");
         jdbc.update("DELETE FROM core.gh_activity_monthly");
-        jdbc.execute("SET TIME ZONE 'Europe/Moscow'");   // the view must not depend on the session zone
+        jdbc.execute("SET TIME ZONE 'America/New_York'");
+        assertThat(jdbc.queryForObject("SHOW TIME ZONE", String.class)).isEqualTo("America/New_York");
     }
 
     /** {@code events} pushes in every hour of [from, to), UTC. */
