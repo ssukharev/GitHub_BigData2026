@@ -578,6 +578,41 @@ class RepoCollectorTest {
         assertThat((List<ReadmeRow>) readmes.getValue()).containsExactly(new ReadmeRow(1, null));
     }
 
+    @Test
+    void anOversizedWindowFailsBeforeWritingAnyPageOrDoneCheckpoint() {
+        pages.add(() -> {
+            ObjectNode data = page(20, true, "next");
+            ((ObjectNode) data.path("search")).put("repositoryCount", 1001);
+            return data;
+        });
+        String qualifier = "created:2024-01-01T00:00:00Z..2024-01-01T00:09:59Z";
+
+        assertThatThrownBy(() -> collector.collectUnit(qualifier, january(1, false)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining(qualifier).hasMessageContaining("1001").hasMessageContaining("1000");
+
+        assertThat(events).isEmpty();
+        assertThat(checkpoints.get(RepoCollector.SOURCE, RepoCollector.windowKey(qualifier, 10))).isEmpty();
+    }
+
+    @Test
+    void aWindowThatGrowsPastTheCapKeepsOnlyItsIncompleteCheckpoint() {
+        pages.add(() -> page(20, true, "next"));
+        pages.add(() -> {
+            ObjectNode data = page(20, false, null);
+            ((ObjectNode) data.path("search")).put("repositoryCount", 1001);
+            return data;
+        });
+        String qualifier = "created:2024-01-01T00:00:00Z..2024-01-01T00:09:59Z";
+
+        assertThatThrownBy(() -> collector.collectUnit(qualifier, january(1, false)))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("1001");
+
+        verify(repository, times(1)).upsertRepos(anyList());
+        assertThat(checkpoints.get(RepoCollector.SOURCE, RepoCollector.windowKey(qualifier, 10)))
+                .contains("20:next");
+    }
+
     // ---- helpers ----
 
     private String readReport(String name) {
