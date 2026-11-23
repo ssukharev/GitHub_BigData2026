@@ -6,6 +6,9 @@
 --   set -a && . ./.env && set +a
 --   PGPASSWORD="$POSTGRES_PASSWORD" psql -h localhost -p "${POSTGRES_PORT:-5432}" -U "$POSTGRES_USER" \
 --        -d "$POSTGRES_DB" -f sql/quality/checks.sql > quality.out
+-- The released data-only dumps omit collection_runs and checkpoints. For the 2026-11-20
+-- commit-history snapshot use -v commit_collection_week=2026-11-15; otherwise the script
+-- uses the last successful collection run. The cutoff must be a Sunday in UTC.
 --
 -- [block] must return no rows, or every row is explained in docs/data/quality-2026-11.md.
 -- [info]  gives numbers for the data section of the article.
@@ -45,14 +48,27 @@ FROM q_sample s
 JOIN q_population p USING (month);
 CREATE UNIQUE INDEX ON q_weight (repo_id);
 
--- the week of collection of the weekly commit statistics: the last successful github-commits run
+-- Published data-only snapshots have no run journal. Never silently skip Q09b/Q09c in that
+-- case, or derive a cutoff from max(week): a future-dated record itself would move the cutoff.
+\if :{?commit_collection_week}
 CREATE TEMP TABLE q_commits_run AS
-SELECT id, started_at,
-       (started_at::date - extract(dow FROM started_at)::int) AS collection_week   -- its Sunday
+SELECT :'commit_collection_week'::date AS collection_week;
+\else
+CREATE TEMP TABLE q_commits_run AS
+SELECT (started_at::date - extract(dow FROM started_at)::int) AS collection_week
 FROM core.collection_runs
 WHERE source = 'github-commits' AND status = 'success' AND rows > 0
 ORDER BY id DESC
 LIMIT 1;
+\endif
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM q_commits_run WHERE extract(isodow FROM collection_week) = 7) THEN
+        RAISE EXCEPTION 'A Sunday commit collection week is required: supply -v commit_collection_week=YYYY-MM-DD from snapshot metadata';
+    END IF;
+END
+$$;
+SELECT collection_week AS checked_commit_collection_week FROM q_commits_run;
 
 \echo
 \echo '=================== core.repos ==================='
@@ -279,11 +295,11 @@ LEFT JOIN core.readmes m ON m.repo_id = r.id
 WHERE m.repo_id IS NULL;
 
 \echo
-\echo 'Q07 [info] README in the sample: checked, found, none, empty, length in characters'
+\echo 'Q07 [info] README in the sample: checked, found, none (% of checked, unknown if not checked), empty, length'
 SELECT count(m.repo_id)                                                   AS checked,
        count(m.text)                                                      AS found,
        count(m.repo_id) - count(m.text)                                   AS none,
-       round(100.0 * (count(m.repo_id) - count(m.text)) / count(*), 1)    AS none_pct,
+       round(100.0 * (count(m.repo_id) - count(m.text)) / nullif(count(m.repo_id), 0), 1) AS none_pct,
        count(*) FILTER (WHERE m.text = '')                                AS empty_text,
        percentile_cont(0.5) WITHIN GROUP (ORDER BY length(m.text))        AS median_length,
        percentile_cont(0.9) WITHIN GROUP (ORDER BY length(m.text))        AS p90_length
@@ -337,7 +353,7 @@ SELECT count(*)                                                     AS repos,
 FROM b;
 
 \echo
-\echo 'Q09b [block] weeks after the collection week (last successful github-commits run)'
+\echo 'Q09b [block] weeks after the checked commit collection week'
 SELECT w.repo_id, w.week, c.collection_week
 FROM core.repo_commits_weekly w
 CROSS JOIN q_commits_run c
@@ -393,8 +409,7 @@ WHERE r.contributors_total IS NULL;
 \echo 'Q11 [block] UTC days whose hours are not 24 in gh_activity_hourly (a missing hour is a hole, not zero events)'
 WITH days AS (
     SELECT d::date AS day
-    FROM generate_series((SELECT min(ts_hour)::date FROM core.gh_activity_hourly),
-                         (SELECT max(ts_hour)::date FROM core.gh_activity_hourly),
+    FROM generate_series(date '2018-01-01', date '2026-07-31',
                          interval '1 day') AS d
 ), have AS (
     SELECT ts_hour::date AS day, count(DISTINCT ts_hour) AS hours
@@ -411,8 +426,7 @@ ORDER BY days.day;
 \echo 'Q11b [block] days without pushes or below 30% of the median of the previous 28 days'
 WITH days AS (
     SELECT d::date AS day
-    FROM generate_series((SELECT min(ts_hour)::date FROM core.gh_activity_hourly),
-                         (SELECT max(ts_hour)::date FROM core.gh_activity_hourly),
+    FROM generate_series(date '2018-01-01', date '2026-07-31',
                          interval '1 day') AS d
 ), daily AS (
     SELECT ts_hour::date AS day, sum(events) AS events
@@ -426,7 +440,7 @@ WITH days AS (
 ), base AS (
     SELECT p.day, p.events, percentile_cont(0.5) WITHIN GROUP (ORDER BY q.events) AS median28
     FROM push p
-    JOIN push q ON q.day >= p.day - 28 AND q.day < p.day
+    LEFT JOIN push q ON q.day >= p.day - 28 AND q.day < p.day
     GROUP BY p.day, p.events
 )
 SELECT day, events, round(median28) AS median28
@@ -456,7 +470,7 @@ GROUP BY 1
 ORDER BY 1;
 
 \echo
-\echo 'Q12 [info] hourly against monthly: months, event types and is_bot whose events or commits differ by more than 0.1%'
+\echo 'Q12 [info] hourly against monthly: missing key, different commit NULL status or difference > 0.1%'
 WITH h AS (
     SELECT date_trunc('month', ts_hour)::date AS month, event_type, is_bot,
            sum(events) AS events, sum(commits) AS commits
@@ -475,18 +489,27 @@ FROM h
 FULL JOIN m ON m.month = h.month AND m.event_type = h.event_type AND m.is_bot = h.is_bot
 WHERE h.month IS NULL OR m.month IS NULL
    OR abs(h.events - m.events) > 0.001 * greatest(h.events, m.events)
-   OR abs(coalesce(h.commits, 0) - coalesce(m.commits, 0)) > 0.001 * greatest(coalesce(h.commits, 0), coalesce(m.commits, 0))
+   OR (h.commits IS NULL) <> (m.commits IS NULL)
+   OR abs(h.commits - m.commits) > 0.001 * greatest(h.commits, m.commits)
 ORDER BY 1, 2, 3;
 
 \echo
-\echo 'Q12b [block] commits rules: NULL for PushEvent before 2025-10, not NULL elsewhere, more than 100 per push'
-SELECT date_trunc('month', ts_hour)::date AS month, event_type, count(*) AS bad_rows
-FROM core.gh_activity_hourly
-WHERE (event_type = 'PushEvent' AND ts_hour < timestamptz '2025-10-01 00:00+00' AND commits IS NULL)
-   OR (commits IS NOT NULL AND (event_type <> 'PushEvent' OR ts_hour >= timestamptz '2025-10-01 00:00+00'))
-   OR commits > 100 * events
-GROUP BY 1, 2
-ORDER BY 1, 2;
+\echo 'Q12b [block] commits rules: unexpected NULL or count, more than 100 commits per push (both tables)'
+WITH activity AS (
+    SELECT 'hourly' AS table_name, date_trunc('month', ts_hour)::date AS month,
+           event_type, commits, events
+    FROM core.gh_activity_hourly
+    UNION ALL
+    SELECT 'monthly', month, event_type, commits, events
+    FROM core.gh_activity_monthly
+)
+SELECT table_name, month, event_type, count(*) AS bad_rows
+FROM activity
+WHERE (event_type = 'PushEvent' AND month < date '2025-10-01' AND commits IS NULL)
+   OR (commits IS NOT NULL AND (event_type <> 'PushEvent' OR month >= date '2025-10-01'))
+   OR commits > 100::numeric * events
+GROUP BY 1, 2, 3
+ORDER BY 1, 2, 3;
 
 \echo
 \echo 'Q12c [info] share of [bot] accounts among PushEvent, %: control weeks (about 1, 16, 28 on 02.11) and years'
