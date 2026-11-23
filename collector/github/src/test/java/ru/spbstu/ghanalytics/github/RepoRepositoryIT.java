@@ -9,6 +9,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import ru.spbstu.ghanalytics.core.CollectionContext;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
@@ -122,6 +123,31 @@ class RepoRepositoryIT {
     }
 
     @Test
+    void contributorStatsKeepAKnownTotalWhenTheNewOneIsUnknown() {
+        repository.upsertRepos(List.of(full(1, "a/one", 10, null, T1), full(2, "b/two", 20, null, T1)));
+
+        repository.updateContributorStats(1, 864, true);
+        repository.updateContributorStats(1, null, false);
+
+        Map<String, Object> row = jdbc.queryForMap("SELECT contributors_total, stats_truncated FROM core.repos WHERE id = 1");
+        assertThat(row).containsEntry("contributors_total", 864).containsEntry("stats_truncated", false);
+        assertThat(jdbc.queryForMap("SELECT contributors_total, stats_truncated FROM core.repos WHERE id = 2").values())
+                .as("other repositories are not touched").containsOnlyNulls();
+    }
+
+    @Test
+    void contributorStatsOfAnUnknownTotalStayNull() {
+        repository.upsertRepos(List.of(full(1, "a/one", 10, null, T1)));
+
+        repository.updateContributorStats(1, null, false);
+        repository.updateContributorStats(99, 5, false);   // not in the table: nothing happens
+
+        Map<String, Object> row = jdbc.queryForMap("SELECT contributors_total, stats_truncated FROM core.repos WHERE id = 1");
+        assertThat(row.get("contributors_total")).isNull();
+        assertThat(row).containsEntry("stats_truncated", false);
+    }
+
+    @Test
     void upsertOverARowOfThePrototype() {
         jdbc.update("""
                 INSERT INTO core.repos (id, node_id, full_name, owner_type, created_at, stars, forks, is_fork, is_archived)
@@ -230,6 +256,28 @@ class RepoRepositoryIT {
                 .as("the first second of the next day is not in the period").isEmpty();
         assertThat(repository.findWithoutReadme(LocalDate.of(2024, 1, 14), LocalDate.of(2024, 1, 14)))
                 .extracting(RepoRepository.RepoRef::id).containsExactly(3L);
+    }
+
+    @Test
+    void findsRefsOfThePeriodWithEnoughStarsByIdUpToTheLimit() {
+        repository.upsertRepos(List.of(full(3, "c/three", 30, null, T1), full(1, "a/one", 10, null, T1),
+                full(2, "b/two", 9, null, T1), withNulls(4, "d/four")));   // 1-3: 2024-01-14, 4: 2024-01-01T00:00:00Z, 10 stars
+
+        assertThat(repository.findRefs(ctx("2024-01-01", "2024-01-31", 10, 0))).containsExactly(
+                new RepoRepository.RepoRef(1, "a/one", false), new RepoRepository.RepoRef(3, "c/three", false),
+                new RepoRepository.RepoRef(4, "d/four", null));
+        assertThat(repository.findRefs(ctx("2024-01-01", "2024-01-31", 10, 2)))
+                .as("limit 2: the first two by id").extracting(RepoRepository.RepoRef::id).containsExactly(1L, 3L);
+        assertThat(repository.findRefs(ctx("2024-01-01", "2024-01-31", 0, 0)))
+                .extracting(RepoRepository.RepoRef::id).containsExactly(1L, 2L, 3L, 4L);
+        assertThat(repository.findRefs(ctx("2024-01-14", "2024-01-14", 30, 0)))
+                .extracting(RepoRepository.RepoRef::id).containsExactly(3L);
+        assertThat(repository.findRefs(ctx("2023-12-01", "2023-12-31", 0, 0)))
+                .as("the first second of the next day is not in the period").isEmpty();
+    }
+
+    private static CollectionContext ctx(String from, String to, int minStars, int limit) {
+        return new CollectionContext(LocalDate.parse(from), LocalDate.parse(to), minStars, limit, false);
     }
 
     private static int count(String table) {
