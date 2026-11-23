@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import pandas as pd
+import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 
@@ -15,6 +16,7 @@ from ghdata.classification import (
     train_and_evaluate_classifiers,
 )
 from ghdata.db import get_connection_url
+from ghdata.loaders import load_repos_for_classification
 
 
 def test_get_connection_url_from_env(monkeypatch):
@@ -187,6 +189,11 @@ def test_feature_extraction_and_classifier_pipeline(tmp_path: Path):
     eval_res = train_and_evaluate_classifiers(df, target_col="type", test_size=0.25, demo=True)
     assert "unclear" not in eval_res["labels"]
     assert set(eval_res["labels"]) == set(REPO_TYPES)
+    assert "cv_f1_macro_mean" in eval_res["metrics_df"].columns
+    assert "test_f1_macro" not in eval_res["metrics_df"].columns
+    assert "MajorityBaseline" in set(eval_res["test_metrics_df"]["model"])
+    assert eval_res["class_counts"]["train"].sum() == 63
+    assert eval_res["class_counts"]["test"].sum() == 21
     assert eval_res["best_model_name"] in (
         "LogisticRegression", "LinearSVC", "RandomForest"
     )
@@ -195,6 +202,38 @@ def test_feature_extraction_and_classifier_pipeline(tmp_path: Path):
     dist_path, cm_path = save_classification_figures(df, eval_res, tmp_path)
     assert dist_path.is_file()
     assert cm_path.is_file()
+
+
+def test_load_repos_for_classification_propagates_label_errors(monkeypatch):
+    def fake_read_sql(query, eng, params=None):
+        return pd.DataFrame([{"repo_id": 1, "full_name": "a/b"}])
+
+    def broken_labels(eng):
+        raise ConnectionError("DB unavailable")
+
+    monkeypatch.setattr(pd, "read_sql_query", fake_read_sql)
+    monkeypatch.setattr("ghdata.loaders.load_repo_labels", broken_labels)
+
+    with pytest.raises(RuntimeError, match="core.repo_labels"):
+        load_repos_for_classification(engine=object())
+
+
+def test_existing_label_provenance_is_preserved_without_nan_promotion():
+    data = pd.DataFrame([
+        {"repo_id": 1, "type": "library", "source": "manual", "labeled_by": "reviewer"},
+        {"repo_id": 2, "type": "cli_tool", "source": "llm", "labeled_by": float("nan")},
+    ])
+    labels = build_labeled_dataset(data, labeled_by="automatic-labeler")
+    assert labels[["source", "labeled_by"]].to_dict("records") == [
+        {"source": "manual", "labeled_by": "reviewer"},
+        {"source": "llm", "labeled_by": "automatic-labeler"},
+    ]
+    data.loc[1, "source"] = float("nan")
+    with pytest.raises(ValueError, match="explicit valid source"):
+        build_labeled_dataset(data)
+    data.loc[1, "source"] = "manual"
+    with pytest.raises(ValueError, match="reviewer provenance"):
+        build_labeled_dataset(data)
 
 
 def test_sqlite_query_integration():

@@ -201,18 +201,27 @@ def build_labeled_dataset(
 ) -> pd.DataFrame:
     """
     Формирует таблицу разметки (repo_id, type, source, labeled_by).
-    Для эвристики используется source='heuristic' (не 'llm').
+    Существующие метки сохраняют источник и автора; неизвестный источник не
+    превращается в ручную разметку. Для новой эвристики используется source='heuristic'.
     """
     rows = []
     for _, row in df.iterrows():
         existing_type = row.get("type")
         if pd.notna(existing_type) and str(existing_type) in ALL_LABEL_VALUES:
+            raw_source = row.get("source")
+            if pd.isna(raw_source) or str(raw_source) not in ("manual", "llm", "heuristic"):
+                raise ValueError("Existing labels require an explicit valid source")
+            source_value = str(raw_source)
+            raw_by = row.get("labeled_by")
+            if source_value == "manual" and (pd.isna(raw_by) or not str(raw_by).strip()):
+                raise ValueError("Existing manual labels require reviewer provenance")
+            by_value = str(raw_by) if pd.notna(raw_by) and str(raw_by).strip() else labeled_by
             rows.append(
                 {
                     "repo_id": int(row["repo_id"]),
                     "type": str(existing_type),
-                    "source": str(row.get("source") or "manual"),
-                    "labeled_by": str(row.get("labeled_by") or labeled_by),
+                    "source": source_value,
+                    "labeled_by": by_value,
                 }
             )
             continue

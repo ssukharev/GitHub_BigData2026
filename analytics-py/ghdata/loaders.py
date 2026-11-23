@@ -115,7 +115,10 @@ def load_repos_for_classification(engine: Optional[Engine] = None) -> pd.DataFra
     df = pd.read_sql_query(text(query), eng)
 
     # A missing table or failed query is an error, not an unlabelled data set.
-    labels_df = load_repo_labels(eng)
+    try:
+        labels_df = load_repo_labels(eng)
+    except Exception as exc:
+        raise RuntimeError(f"Не удалось загрузить разметку из core.repo_labels: {exc}") from exc
     if not labels_df.empty:
         priority = {"manual": 0, "llm": 1, "heuristic": 2}
         labels_df = labels_df.assign(
