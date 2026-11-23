@@ -1,7 +1,10 @@
 package ru.spbstu.ghanalytics.github;
 
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowMapper;
+import org.springframework.jdbc.core.SqlParameterValue;
 import org.springframework.stereotype.Repository;
+import ru.spbstu.ghanalytics.core.CollectionContext;
 
 import java.sql.Types;
 import java.time.LocalDate;
@@ -82,9 +85,28 @@ public class RepoRepository {
             ORDER BY r.id
             """;
 
-    /** A repository to ask a README for: what the request and the empty check need. */
+    private static final String UPDATE_CONTRIBUTOR_STATS = """
+            UPDATE core.repos SET contributors_total = COALESCE(?, contributors_total), stats_truncated = ?
+            WHERE id = ?
+            """;
+
+    /** {@code LIMIT NULL} in PostgreSQL is no limit at all. */
+    private static final String BY_CONTEXT = """
+            SELECT id, full_name, is_empty FROM core.repos
+            WHERE created_at >= ? AND created_at < ? AND stars >= ?
+            ORDER BY id
+            LIMIT ?
+            """;
+
+    /**
+     * A repository to ask GitHub about (a README, commit statistics): its id, the {@code owner/name}
+     * for the request path and {@code is_empty} for the README empty check.
+     */
     public record RepoRef(long id, String fullName, Boolean isEmpty) {
     }
+
+    private static final RowMapper<RepoRef> REF =
+            (rs, i) -> new RepoRef(rs.getLong("id"), rs.getString("full_name"), rs.getObject("is_empty", Boolean.class));
 
     private final JdbcTemplate jdbc;
 
@@ -98,10 +120,35 @@ public class RepoRepository {
      * A row with null text ("no README") is a checked repository and is not returned.
      */
     public List<RepoRef> findWithoutReadme(LocalDate from, LocalDate to) {
-        return jdbc.query(WITHOUT_README,
-                (rs, i) -> new RepoRef(rs.getLong("id"), rs.getString("full_name"), rs.getObject("is_empty", Boolean.class)),
-                OffsetDateTime.of(from.atStartOfDay(), ZoneOffset.UTC),
-                OffsetDateTime.of(to.plusDays(1).atStartOfDay(), ZoneOffset.UTC));
+        return jdbc.query(WITHOUT_README, REF, startOf(from), startOf(to.plusDays(1)));
+    }
+
+    /**
+     * Repositories already in {@code core.repos} for a collector that works on them (commit activity):
+     * created in {@code [from, to]} (both days included, UTC), {@code stars >= minStars}, by {@code id}.
+     * {@code limit > 0} takes the first N of them, for a pilot; it is not a sample, the sample was
+     * drawn by {@link RepoCollector}.
+     */
+    public List<RepoRef> findRefs(CollectionContext ctx) {
+        return jdbc.query(BY_CONTEXT, REF,
+                startOf(ctx.from()), startOf(ctx.to().plusDays(1)), ctx.minStars(),
+                new SqlParameterValue(Types.INTEGER, ctx.hasLimit() ? ctx.limit() : null));
+    }
+
+    /**
+     * Contributor numbers from the commit activity collector. A null total ("unknown", for example
+     * 403 on a giant repository) keeps the number already known; the truncation mark is always the
+     * fresh value. A repository that is not in the table is ignored.
+     *
+     * @param contributorsTotal every contributor, anonymous ones included; null if unknown
+     * @param statsTruncated    the {@code /stats/contributors} answer had the maximum of 100 authors
+     */
+    public void updateContributorStats(long repoId, Integer contributorsTotal, boolean statsTruncated) {
+        jdbc.update(UPDATE_CONTRIBUTOR_STATS, ps -> {
+            ps.setObject(1, contributorsTotal, Types.INTEGER);   // null needs its type
+            ps.setBoolean(2, statsTruncated);
+            ps.setLong(3, repoId);
+        });
     }
 
     /** Upsert into {@code core.repos} by {@code id}. Returns the number of rows given. */
@@ -188,5 +235,10 @@ public class RepoRepository {
             ps.setLong(1, row.repoId());
             ps.setString(2, row.text());
         });
+    }
+
+    /** Midnight UTC of the day: {@code created_at} is {@code timestamptz}, the upper bound is not included. */
+    private static OffsetDateTime startOf(LocalDate day) {
+        return OffsetDateTime.of(day.atStartOfDay(), ZoneOffset.UTC);
     }
 }

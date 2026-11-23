@@ -24,7 +24,7 @@ import java.util.Optional;
 import java.util.function.Function;
 
 /**
- * GitHub REST API: READMEs now, commit statistics later. REST has its own rate limit bucket
+ * GitHub REST API: READMEs and commit statistics. REST has its own rate limit bucket
  * (5000 requests an hour, counted apart from GraphQL points), so the client keeps its own
  * {@link TokenPool} and {@link RateLimitGuard} instead of the GraphQL beans.
  * <p>

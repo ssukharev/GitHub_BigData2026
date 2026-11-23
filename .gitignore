@@ -34,3 +34,13 @@ dumps/
 
 # Maven
 target/
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+analytics-py/results/demo/

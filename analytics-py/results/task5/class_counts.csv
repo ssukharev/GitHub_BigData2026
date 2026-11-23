@@ -1,0 +1,8 @@
+type,train,test
+library,13,4
+framework,4,1
+application,52,18
+cli_tool,13,4
+dataset,5,2
+documentation,13,4
+educational,8,3
