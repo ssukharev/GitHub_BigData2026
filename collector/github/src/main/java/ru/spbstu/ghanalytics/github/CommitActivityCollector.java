@@ -40,11 +40,14 @@ import java.util.regex.Pattern;
  * <pre>
  * repositories = findRefs(--from, --to, --min-stars, --limit) by id; --resume drops those with a checkpoint
  * round 1..MAX_ROUNDS over the queue:
- *   200 -> weekly rows; stats_truncated = (100 or about 500 authors); contributors_total from
- *          /contributors?per_page=1&amp;anon=1 (one request, not in every round); checkpoint done ([] gives empty)
- *   202 -> GitHub is computing the statistics: into the queue of the next round, no checkpoint
- *   204 -> no rows, contributors_total as for 200, checkpoint empty;   404 -> checkpoint missing
- *   an error after all retries -> WARN, no checkpoint: the next run asks again
+ *   200 -> the answer is checked whole, then its weeks replace those of the repository (weeks it no longer
+ *          has are deleted); stats_truncated = (100 or about 500 authors); contributors_total from
+ *          /contributors?per_page=1&amp;anon=1 (one request, not in every round); checkpoint done
+ *          ([] clears the weeks, checkpoint empty)
+ *   202 -> GitHub is computing the statistics: into the queue of the next round, no checkpoint, old weeks stay
+ *   204 -> the weeks are cleared, contributors_total as for 200, checkpoint empty
+ *   404 -> checkpoint missing, old weeks stay
+ *   an error after all retries or a malformed answer -> WARN, no checkpoint, old weeks stay: the next run asks again
  *   a round shorter than MIN_ROUND waits for the rest of it before the next one
  * still 202 after the last round -> counted in pending_repos, no checkpoint
  * </pre>
@@ -65,8 +68,14 @@ import java.util.regex.Pattern;
  * The statistics count only authors linked to a GitHub account: commits from an e-mail that belongs
  * to no account are left out. A repository where every commit is such gets 204, the status the
  * documentation gives for an empty repository (acheong08/DuckDuckGo-API: 204, 18 anonymous commits).
- * So 204 writes no rows, which means "unknown", not zero weeks, and {@code contributors_total} is
- * asked as after a 200: 0 for a really empty repository, the anonymous authors otherwise.
+ * So after 204 the repository has no rows, which means "unknown", not zero weeks, and
+ * {@code contributors_total} is asked as after a 200: 0 for a really empty repository, the
+ * anonymous authors otherwise.
+ * <p>
+ * An answer of 200 or 204 is the whole history of the default branch at this moment, so it replaces
+ * the weeks of the repository instead of adding to them: after a force-push the removed weeks go
+ * too. Answers that say nothing about the history (202, 404, errors, a malformed body) leave the
+ * weeks as they are.
  * <p>
  * Checkpoints: source {@code github-commits}, key the repository id, value {@code done}, {@code empty}
  * or {@code missing}; written after the rows, read only with {@code --resume}.
@@ -319,11 +328,11 @@ public class CommitActivityCollector implements Collector {
 
     /**
      * Rows first, then the contributor numbers, the checkpoint last: a crash in between repeats the
-     * repository, and the upserts make it harmless.
+     * repository, and the replacement makes it harmless.
      */
     private Result stored(RepoRef repo, JsonNode contributors) {
         List<WeekRow> rows = aggregate(repo.id(), contributors);
-        commits.upsertWeeks(rows);
+        commits.replaceWeeks(repo.id(), rows);
         boolean truncated = isTruncated(contributors);
         Integer total = contributorsTotal(repo.fullName());
         repository.updateContributorStats(repo.id(), total, truncated);
@@ -342,6 +351,7 @@ public class CommitActivityCollector implements Collector {
      * account. The contributors request tells one from the other (0 or the anonymous authors).
      */
     private Result noContent(RepoRef repo) {
+        commits.replaceWeeks(repo.id(), List.of());   // weeks of an earlier answer are no longer true
         Integer total = contributorsTotal(repo.fullName());
         repository.updateContributorStats(repo.id(), total, false);
         log.debug("{}: no statistics (204), contributors_total {}", repo.fullName(), total);
@@ -386,7 +396,31 @@ public class CommitActivityCollector implements Collector {
             throw new IllegalStateException("/stats/contributors of " + repo.fullName() + " answered 200 with "
                     + tree.getNodeType() + ", not an array");
         }
+        validate(repo.fullName(), tree);
         return tree;
+    }
+
+    /**
+     * Every author an object with an array {@code weeks}, every week integral {@code w} and
+     * {@code c >= 0}. Checked before anything is written: a malformed answer must not replace the
+     * old weeks (a missing {@code w} would read as 1970-01-01).
+     */
+    static void validate(String fullName, JsonNode contributors) {
+        for (JsonNode author : contributors) {
+            JsonNode weeks = author.path("weeks");
+            if (!author.isObject() || !weeks.isArray()) {
+                throw new IllegalStateException("/stats/contributors of " + fullName
+                        + ": an author without an array of weeks");
+            }
+            for (JsonNode w : weeks) {
+                JsonNode start = w.path("w");
+                JsonNode count = w.path("c");
+                if (!start.isIntegralNumber() || !count.isIntegralNumber() || start.asLong() < 0 || count.asLong() < 0) {
+                    throw new IllegalStateException("/stats/contributors of " + fullName
+                            + ": a week without integral w and c >= 0: " + w);
+                }
+            }
+        }
     }
 
     /** The length of a JSON array body; an empty body is 0. */

@@ -84,7 +84,7 @@ class CommitActivityCollectorTest {
     private final TestClock clock = new TestClock(Instant.parse("2026-11-19T09:00:00Z"));
     private final List<Duration> sleeps = new ArrayList<>();
 
-    /** Writes in order: "weeks N", "contributors total truncated" and "checkpoint key = value". */
+    /** Writes in order: "weeks N" (a snapshot of N weeks), "contributors total truncated" and "checkpoint key = value". */
     private final List<String> events = new ArrayList<>();
     private final RepoCollectorTest.InMemoryCheckpoints checkpoints = new RepoCollectorTest.InMemoryCheckpoints(events);
 
@@ -119,8 +119,8 @@ class CommitActivityCollectorTest {
             }
             return answer;
         });
-        when(commits.upsertWeeks(anyList())).thenAnswer(invocation -> {
-            int size = ((List<?>) invocation.getArgument(0)).size();
+        when(commits.replaceWeeks(anyLong(), anyList())).thenAnswer(invocation -> {
+            int size = ((List<?>) invocation.getArgument(1)).size();
             events.add("weeks " + size);
             return size;
         });
@@ -189,21 +189,22 @@ class CommitActivityCollectorTest {
         collector.collect(MARCH);
 
         assertThat(events).containsExactly("weeks 2", "contributors 1 false", "checkpoint 1 = done");
-        verify(commits).upsertWeeks(List.of(new WeekRow(1, JAN_3, 5, 2), new WeekRow(1, JAN_10, 4, 1)));
+        verify(commits).replaceWeeks(1, List.of(new WeekRow(1, JAN_3, 5, 2), new WeekRow(1, JAN_10, 4, 1)));
         verify(runs).finish(eq(9L), eq(2L), any());
         assertThat(stats.snapshot()).containsEntry(CommitActivityCollector.DONE_REPOS, 1L);
     }
 
     @Test
-    void noContentIsEmptyWithoutRows() {
+    void noContentClearsTheOldSnapshotAndIsEmpty() {
         repos(ref(1, "a/empty"));
         stats("a/empty", reply(204, ""));
         contributors("a/empty", reply(204, ""));
 
         collector.collect(MARCH);
 
-        assertThat(events).containsExactly("contributors 0 false", "checkpoint 1 = empty");
-        verify(commits, never()).upsertWeeks(anyList());
+        assertThat(events).as("a definitive answer: no weeks are left").containsExactly("weeks 0", "contributors 0 false",
+                "checkpoint 1 = empty");
+        verify(commits).replaceWeeks(1, List.of());
         assertThat(stats.snapshot()).containsEntry(CommitActivityCollector.EMPTY_REPOS, 1L);
     }
 
@@ -216,7 +217,7 @@ class CommitActivityCollectorTest {
         collector.collect(MARCH);
 
         assertThat(events).as("no rows: the weeks are unknown, not zero")
-                .containsExactly("contributors 1 false", "checkpoint 1 = empty");
+                .containsExactly("weeks 0", "contributors 1 false", "checkpoint 1 = empty");
     }
 
     @Test
@@ -237,7 +238,7 @@ class CommitActivityCollectorTest {
 
         collector.collect(MARCH);
 
-        assertThat(events).containsExactly("checkpoint 1 = missing");
+        assertThat(events).as("the old snapshot stays").containsExactly("checkpoint 1 = missing");
         assertThat(asked).containsExactly(statsPath("a/gone"));
         assertThat(stats.snapshot()).containsEntry(CommitActivityCollector.MISSING_REPOS, 1L);
     }
@@ -296,7 +297,8 @@ class CommitActivityCollectorTest {
 
         assertThat(asked).hasSize(CommitActivityCollector.MAX_ROUNDS);
         assertThat(sleeps).as("no pause after the last round").hasSize(CommitActivityCollector.MAX_ROUNDS - 1);
-        assertThat(events).isEmpty();
+        assertThat(events).as("202 keeps the old snapshot").isEmpty();
+        verify(commits, never()).replaceWeeks(anyLong(), anyList());
         assertThat(stats.snapshot()).containsEntry(CommitActivityCollector.PENDING_REPOS, 1L);
         verify(runs).finish(eq(9L), eq(0L), any());
     }
@@ -353,6 +355,22 @@ class CommitActivityCollectorTest {
     }
 
     @Test
+    void aMalformedWeeklyRecordIsAnErrorAndKeepsTheOldSnapshot() {
+        repos(ref(1, "a/no-w"), ref(2, "b/text-c"), ref(3, "c/no-weeks"), ref(4, "d/number"), ref(5, "e/negative"));
+        stats("a/no-w", reply(200, "[{\"author\": {\"login\": \"a\"}, \"weeks\": [{\"c\": 1}]}]"));
+        stats("b/text-c", reply(200, "[{\"weeks\": [{\"w\": 1609632000, \"c\": \"1\"}]}]"));
+        stats("c/no-weeks", reply(200, "[{\"author\": {\"login\": \"a\"}, \"total\": 1}]"));
+        stats("d/number", reply(200, "[1]"));
+        stats("e/negative", reply(200, "[{\"weeks\": [{\"w\": 1609632000, \"c\": -1}]}]"));
+
+        collector.collect(MARCH);
+
+        assertThat(events).isEmpty();
+        verify(commits, never()).replaceWeeks(anyLong(), anyList());
+        assertThat(stats.snapshot()).containsEntry(CommitActivityCollector.FAILED_REPOS, 5L);
+    }
+
+    @Test
     void anUnexpectedStatusIsAnError() {
         repos(ref(1, "a/odd"));
         stats("a/odd", reply(201, "[]"));
@@ -379,7 +397,7 @@ class CommitActivityCollectorTest {
     void aDatabaseErrorFailsTheRun() throws IOException {
         repos(ref(1, "a/one"));
         stats("a/one", reply(200, fixtureText()));
-        doThrow(new DataAccessResourceFailureException("connection refused")).when(commits).upsertWeeks(anyList());
+        doThrow(new DataAccessResourceFailureException("connection refused")).when(commits).replaceWeeks(anyLong(), anyList());
 
         assertThatThrownBy(() -> collector.collect(MARCH)).isInstanceOf(DataAccessResourceFailureException.class);
 
@@ -514,7 +532,7 @@ class CommitActivityCollectorTest {
         collector.collect(MARCH);
 
         assertThat(events).containsExactly("weeks 1", "contributors 864 true", "checkpoint 1 = done");
-        verify(commits).upsertWeeks(List.of(new WeekRow(1, JAN_3, 100, 100)));
+        verify(commits).replaceWeeks(1, List.of(new WeekRow(1, JAN_3, 100, 100)));
         assertThat(stats.snapshot()).containsEntry(CommitActivityCollector.TRUNCATED_REPOS, 1L);
     }
 
