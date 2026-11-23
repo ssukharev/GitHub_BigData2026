@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import pandas as pd
+import pytest
 from sqlalchemy import create_engine, text
 
 from ghdata.classification import (
@@ -14,6 +15,7 @@ from ghdata.classification import (
     train_and_evaluate_classifiers,
 )
 from ghdata.db import get_connection_url
+from ghdata.loaders import load_repos_for_classification
 
 
 def test_get_connection_url_from_env(monkeypatch):
@@ -123,10 +125,11 @@ def test_feature_extraction_and_classifier_pipeline(tmp_path: Path):
                     "tree_paths": ["README.md", "src"],
                     "tree_entries_count": 2,
                     "type": None,
+                    "source": None,
+                    "labeled_by": None,
                 }
             )
 
-    # Добавляем записи с меткой 'unclear', которые должны исключаться из оценки
     for k in range(4):
         rows.append(
             {
@@ -157,6 +160,8 @@ def test_feature_extraction_and_classifier_pipeline(tmp_path: Path):
                 "tree_paths": [],
                 "tree_entries_count": 0,
                 "type": None,
+                "source": None,
+                "labeled_by": None,
             }
         )
 
@@ -167,25 +172,45 @@ def test_feature_extraction_and_classifier_pipeline(tmp_path: Path):
     assert set(labeled.columns) == {"repo_id", "type", "source", "labeled_by"}
     assert set(labeled["source"].unique()) == {"heuristic"}
 
-    # Проставим истинные синтетические классы (7 классов + 'unclear')
     df["type"] = [r["topics"][0] if r["topics"] else "unclear" for r in rows]
+    df["source"] = "manual"
+    df["labeled_by"] = "statf0rd"
 
     feats = extract_features_dataframe(df)
     assert "combined_text" in feats.columns
     assert "log_stars" in feats.columns
     assert len(feats) == len(df)
 
-    eval_res = train_and_evaluate_classifiers(df, target_col="type", test_size=0.25)
+    eval_res = train_and_evaluate_classifiers(
+        df, target_col="type", test_size=0.25, require_manual_eval=True
+    )
     assert "unclear" not in eval_res["labels"]
     assert set(eval_res["labels"]) == set(REPO_TYPES)
+    assert "cv_f1_macro_mean" in eval_res["metrics_df"].columns
+    assert "majority_baseline_accuracy" in eval_res
+    assert "class_counts" in eval_res
     assert eval_res["best_model_name"] in (
         "LogisticRegression", "LinearSVC", "RandomForest"
     )
-    assert eval_res["metrics_df"]["test_accuracy"].max() >= 0.7
+    assert eval_res["test_accuracy"] >= 0.7
 
     dist_path, cm_path = save_classification_figures(df, eval_res, tmp_path)
     assert dist_path.is_file()
     assert cm_path.is_file()
+
+
+def test_load_repos_for_classification_propagates_label_errors(monkeypatch):
+    def fake_read_sql(query, eng, params=None):
+        return pd.DataFrame([{"repo_id": 1, "full_name": "a/b"}])
+
+    def broken_labels(eng):
+        raise ConnectionError("DB unavailable")
+
+    monkeypatch.setattr(pd, "read_sql_query", fake_read_sql)
+    monkeypatch.setattr("ghdata.loaders.load_repo_labels", broken_labels)
+
+    with pytest.raises(RuntimeError, match="core.repo_labels"):
+        load_repos_for_classification(engine=object())
 
 
 def test_sqlite_query_integration():

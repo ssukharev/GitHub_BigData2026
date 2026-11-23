@@ -197,18 +197,27 @@ def build_labeled_dataset(
 ) -> pd.DataFrame:
     """
     Формирует таблицу разметки (repo_id, type, source, labeled_by).
-    Для эвристики используется source='heuristic' (не 'llm').
+    Существующие метки сохраняют свой source и labeled_by;
+    для новой эвристики используется source='heuristic'.
     """
     rows = []
     for _, row in df.iterrows():
         existing_type = row.get("type")
         if pd.notna(existing_type) and str(existing_type) in ALL_LABEL_VALUES:
+            raw_source = row.get("source")
+            source_val = (
+                str(raw_source)
+                if pd.notna(raw_source) and str(raw_source) in ("manual", "llm", "heuristic")
+                else "manual"
+            )
+            raw_by = row.get("labeled_by")
+            by_val = str(raw_by) if pd.notna(raw_by) and str(raw_by).strip() else labeled_by
             rows.append(
                 {
                     "repo_id": int(row["repo_id"]),
                     "type": str(existing_type),
-                    "source": str(row.get("source") or "manual"),
-                    "labeled_by": str(row.get("labeled_by") or labeled_by),
+                    "source": source_val,
+                    "labeled_by": by_val,
                 }
             )
             continue
@@ -360,19 +369,72 @@ def train_and_evaluate_classifiers(
     target_col: str = "type",
     test_size: float = 0.25,
     random_state: int = 42,
+    require_manual_eval: bool = True,
 ) -> Dict[str, Any]:
     """
-    Обучает и сравнивает классификаторы scikit-learn на размеченных примерах,
-    исключая записи с меткой 'unclear' из оценки.
+    Обучает и сравнивает классификаторы scikit-learn:
+    - исключает записи с меткой 'unclear';
+    - оценивает качество на независимо проверенной ручной разметке (source == 'manual');
+    - гарантирует, что repo_id из тестовой выборки не попадают в train;
+    - выбирает лучшую модель по cv_f1_macro_mean (с детерминированным тай-брейком),
+      а не по метрикам на test;
+    - рассчитывает majority baseline и размеры классов.
     """
+    if "source" not in df.columns:
+        raise ValueError(
+            "В DataFrame отсутствует обязательная колонка 'source' для провенанса меток."
+        )
+
     clean_df = df.dropna(subset=[target_col]).copy()
     clean_df = clean_df[clean_df[target_col].astype(str) != "unclear"].copy()
 
-    X = extract_features_dataframe(clean_df)
-    y = clean_df[target_col].astype(str)
+    reviewed_df = clean_df[clean_df["source"].astype(str) == "manual"].copy()
+    if require_manual_eval and len(reviewed_df) < 10:
+        raise ValueError(
+            "Недостаточно вручную проверенных меток (source='manual') для честной оценки: "
+            f"найдено {len(reviewed_df)}."
+        )
 
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=test_size, random_state=random_state, stratify=y
+    eval_pool = reviewed_df if len(reviewed_df) >= 10 else clean_df
+    eval_pool = eval_pool.drop_duplicates(subset=["repo_id"], keep="first").copy()
+
+    y_pool = eval_pool[target_col].astype(str)
+    can_stratify_split = (
+        y_pool.value_counts().min() >= 2
+        and int(np.ceil(len(eval_pool) * test_size)) >= y_pool.nunique()
+    )
+    train_reviewed, test_df = train_test_split(
+        eval_pool,
+        test_size=test_size,
+        random_state=random_state,
+        stratify=y_pool if can_stratify_split else None,
+    )
+
+    test_repo_ids = set(test_df["repo_id"].tolist())
+    # В обучающую выборку включаем только те записи, чьих repo_id нет в test_df
+    if len(reviewed_df) >= 10:
+        extra_train = clean_df[
+            (clean_df["source"].astype(str) != "manual")
+            & (~clean_df["repo_id"].isin(test_repo_ids))
+        ].drop_duplicates(subset=["repo_id"], keep="first")
+        train_df = pd.concat([train_reviewed, extra_train], ignore_index=True)
+        train_df = train_df.drop_duplicates(subset=["repo_id"], keep="first")
+    else:
+        train_df = train_reviewed.copy()
+
+    assert set(train_df["repo_id"]).isdisjoint(test_repo_ids), "Утечка repo_id из test в train!"
+
+    X_train = extract_features_dataframe(train_df)
+    y_train = train_df[target_col].astype(str)
+    X_test = extract_features_dataframe(test_df)
+    y_test = test_df[target_col].astype(str)
+
+    # Majority baseline (константное предсказание самого частого класса из train на test)
+    majority_class = str(y_train.value_counts().index[0])
+    y_majority_pred = pd.Series([majority_class] * len(y_test), index=y_test.index)
+    majority_baseline_acc = float(accuracy_score(y_test, y_majority_pred))
+    majority_baseline_f1_macro = float(
+        f1_score(y_test, y_majority_pred, average="macro", zero_division=0)
     )
 
     candidate_models = {
@@ -412,41 +474,59 @@ def train_and_evaluate_classifiers(
         )
 
         pipe.fit(X_train, y_train)
-        y_pred = pipe.predict(X_test)
-
-        test_acc = float(accuracy_score(y_test, y_pred))
-        test_f1_macro = float(f1_score(y_test, y_pred, average="macro", zero_division=0))
-        test_f1_weighted = float(f1_score(y_test, y_pred, average="weighted", zero_division=0))
+        trained_pipelines[name] = pipe
 
         results_summary.append(
             {
                 "model": name,
                 "cv_accuracy_mean": float(np.mean(cv_scores["test_accuracy"])),
                 "cv_f1_macro_mean": float(np.mean(cv_scores["test_f1_macro"])),
-                "test_accuracy": test_acc,
-                "test_f1_macro": test_f1_macro,
-                "test_f1_weighted": test_f1_weighted,
+                "cv_f1_weighted_mean": float(np.mean(cv_scores["test_f1_weighted"])),
             }
         )
-        trained_pipelines[name] = pipe
 
+    # Выбор лучшей модели строго по кросс-валидации на train с детерминированным тай-брейком
     metrics_df = pd.DataFrame(results_summary).sort_values(
-        by="test_f1_macro", ascending=False
-    )
+        by=["cv_f1_macro_mean", "cv_accuracy_mean", "model"],
+        ascending=[False, False, True],
+    ).reset_index(drop=True)
+
     best_model_name = str(metrics_df.iloc[0]["model"])
     best_pipeline = trained_pipelines[best_model_name]
 
+    # Финальная оценка выбранной модели на нетронутом отложенном тесте
     y_best_pred = best_pipeline.predict(X_test)
-    labels_sorted = sorted(y.unique())
+    test_acc = float(accuracy_score(y_test, y_best_pred))
+    test_f1_macro = float(f1_score(y_test, y_best_pred, average="macro", zero_division=0))
+    test_f1_weighted = float(f1_score(y_test, y_best_pred, average="weighted", zero_division=0))
+
+    labels_sorted = sorted(set(y_train.unique()) | set(y_test.unique()))
     report_str = classification_report(
         y_test, y_best_pred, labels=labels_sorted, zero_division=0
     )
     conf_mat = confusion_matrix(y_test, y_best_pred, labels=labels_sorted)
 
+    class_counts = {
+        cls: {
+            "total_reviewed": int((eval_pool[target_col].astype(str) == cls).sum()),
+            "train": int((y_train == cls).sum()),
+            "test": int((y_test == cls).sum()),
+        }
+        for cls in labels_sorted
+    }
+
     return {
         "metrics_df": metrics_df,
         "best_model_name": best_model_name,
         "best_pipeline": best_pipeline,
+        "test_accuracy": test_acc,
+        "test_f1_macro": test_f1_macro,
+        "test_f1_weighted": test_f1_weighted,
+        "majority_class": majority_class,
+        "majority_baseline_accuracy": majority_baseline_acc,
+        "majority_baseline_f1_macro": majority_baseline_f1_macro,
+        "class_counts": class_counts,
+        "eval_source_counts": eval_pool["source"].astype(str).value_counts().to_dict(),
         "classification_report": report_str,
         "confusion_matrix": conf_mat,
         "labels": labels_sorted,
@@ -461,7 +541,7 @@ def save_classification_figures(
     eval_results: Dict[str, Any],
     output_dir: Path,
 ) -> Tuple[Path, Path]:
-    """Строит и сохраняет графики в docs/figures/."""
+    """Строит и сохраняет графики в указанную директорию."""
     output_dir.mkdir(parents=True, exist_ok=True)
 
     dist_path = output_dir / "task5_class_distribution.png"

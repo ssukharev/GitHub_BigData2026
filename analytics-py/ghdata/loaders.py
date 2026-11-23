@@ -62,6 +62,7 @@ def load_repos_for_classification(engine: Optional[Engine] = None) -> pd.DataFra
     Выгружает объединённый датасет для Задачи 5:
     метаданные core.repos + текст README + агрегированный список путей из repo_tree_entries
     + существующие метки из core.repo_labels (приоритет у ручной разметки 'manual').
+    Ошибки при чтении core.repo_labels не проглатываются, чтобы не терять провенанс меток.
     """
     eng = engine or get_engine()
     query = """
@@ -116,21 +117,24 @@ def load_repos_for_classification(engine: Optional[Engine] = None) -> pd.DataFra
 
     try:
         labels_df = load_repo_labels(eng)
-        if not labels_df.empty:
-            priority = {"manual": 0, "llm": 1, "heuristic": 2}
-            labels_df = labels_df.assign(
-                _prio=labels_df["source"].map(priority).fillna(9)
-            ).sort_values("_prio").drop_duplicates("repo_id", keep="first")
-            df = df.merge(
-                labels_df[["repo_id", "type", "source", "labeled_by"]],
-                on="repo_id",
-                how="left",
-            )
-        else:
-            df["type"] = None
-            df["source"] = None
-            df["labeled_by"] = None
-    except Exception:
+    except Exception as exc:
+        raise RuntimeError(
+            f"Не удалось загрузить разметку из core.repo_labels: {exc}"
+        ) from exc
+
+    if not labels_df.empty:
+        priority = {"manual": 0, "llm": 1, "heuristic": 2}
+        labels_df = (
+            labels_df.assign(_prio=labels_df["source"].map(priority).fillna(9))
+            .sort_values(["_prio", "repo_id"])
+            .drop_duplicates("repo_id", keep="first")
+        )
+        df = df.merge(
+            labels_df[["repo_id", "type", "source", "labeled_by"]],
+            on="repo_id",
+            how="left",
+        )
+    else:
         df["type"] = None
         df["source"] = None
         df["labeled_by"] = None

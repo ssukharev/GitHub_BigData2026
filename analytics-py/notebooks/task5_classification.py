@@ -3,15 +3,16 @@
 # **Исполнитель:** Попов Елисей
 #
 # Этапы пайплайна:
-# 1. Выгрузка метаданных, topics, README и дерева файлов через ghdata.
-# 2. Разметка выборки и сохранение в core.repo_labels.
+# 1. Выгрузка метаданных, topics, README, дерева файлов и проверенных меток через ghdata.
+# 2. Доразметка неразмеченных репозиториев (с сохранением источника heuristic/llm).
 # 3. Извлечение текстовых (TF-IDF) и структурных признаков.
-# 4. Обучение моделей, кросс-валидация и расчёт метрик.
-# 5. Сохранение графиков в docs/figures/.
+# 4. Выбор модели по кросс-валидации на train и оценка на отложенной ручной разметке.
+# 5. Сохранение графиков (в docs/figures/ для реальных данных и docs/figures/demo/ для --demo).
 
 # %%
 import argparse
 from pathlib import Path
+from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -30,7 +31,7 @@ def generate_synthetic_sample(
     n_unclear: int = 6,
     seed: int = 42,
 ) -> pd.DataFrame:
-    """Генерация тестовой выборки для демонстрации без БД."""
+    """Генерация тестовой выборки исключительно для явного режима --demo."""
     rng = np.random.default_rng(seed)
     templates = {
         "library": {
@@ -134,7 +135,9 @@ def generate_synthetic_sample(
                     "full_name": f"org-{cls_name}/project-{i}",
                     "owner_type": "Organization" if rng.random() > 0.5 else "User",
                     "description": tpl["desc"] if rng.random() > 0.1 else "",
-                    "homepage_url": "https://example.com" if rng.random() > 0.4 else "",
+                    "homepage_url": (
+                        "https://example.com" if rng.random() > 0.4 else ""
+                    ),
                     "language": rng.choice(tpl["lang"]),
                     "license": "MIT",
                     "stars": int(rng.integers(10, 5000)),
@@ -166,9 +169,9 @@ def generate_synthetic_sample(
                     "readme_text": tpl["readme"],
                     "tree_paths": tpl["tree"],
                     "tree_entries_count": len(tpl["tree"]),
-                    "type": None,
-                    "source": None,
-                    "labeled_by": None,
+                    "type": cls_name,
+                    "source": "manual",
+                    "labeled_by": "demo-synthetic",
                 }
             )
 
@@ -208,7 +211,7 @@ def generate_synthetic_sample(
                 "tree_entries_count": 0,
                 "type": "unclear",
                 "source": "manual",
-                "labeled_by": "statf0rd",
+                "labeled_by": "demo-synthetic",
             }
         )
 
@@ -219,62 +222,84 @@ def run_task5_pipeline(
     use_demo: bool = False,
     use_llm: bool = False,
     save_to_db: bool = True,
+    output_dir: Optional[Path] = None,
 ) -> None:
     project_root = Path(__file__).resolve().parents[2]
-    figures_dir = project_root / "docs" / "figures"
 
     if use_demo:
-        print("[1/4] Генерация демо-выборки (--demo)...")
+        print("[1/4] Генерация демо-выборки (--demo, без записи в БД)...")
         df = generate_synthetic_sample()
+        save_to_db = False
+        figures_dir = output_dir or (project_root / "docs" / "figures" / "demo")
     else:
-        try:
-            print("[1/4] Загрузка данных из БД...")
-            df = load_repos_for_classification()
-            if df.empty:
-                print("БД пуста. Переключаюсь на демо-выборку...")
-                df = generate_synthetic_sample()
-                save_to_db = False
-        except Exception as exc:
-            print(f"Ошибка БД ({exc}). Переключаюсь на демо-выборку...")
-            df = generate_synthetic_sample()
-            save_to_db = False
+        print("[1/4] Загрузка данных из БД...")
+        df = load_repos_for_classification()
+        if df.empty:
+            raise RuntimeError(
+                "Таблица core.repos в БД пуста. "
+                "Запустите коллектор данных или используйте явный флаг --demo."
+            )
+        figures_dir = output_dir or (project_root / "docs" / "figures")
 
     print(f"Загружено репозиториев: {len(df)}")
 
-    print("[2/4] Выполнение разметки репозиториев...")
+    print("[2/4] Формирование и проверка разметки репозиториев...")
     labels_df = build_labeled_dataset(df, use_llm=use_llm, labeled_by="elisey")
     df["type"] = labels_df["type"].values
     df["source"] = labels_df["source"].values
     df["labeled_by"] = labels_df["labeled_by"].values
 
     if save_to_db and not use_demo:
-        try:
-            saved_count = save_repo_labels(labels_df)
-            print(f"Сохранено меток в БД: {saved_count}")
-        except Exception as exc:
-            print(f"Предупреждение сохранения в БД: {exc}")
+        # Сохраняем только новые автоматические метки, не перезаписывая manual
+        auto_labels_df = labels_df[labels_df["source"].isin(["llm", "heuristic"])].copy()
+        saved_count = save_repo_labels(auto_labels_df)
+        print(f"Сохранено автоматических меток в БД: {saved_count}")
 
-    print("\nРаспределение классов:")
+    print("\nРаспределение классов (все источники):")
     print(df["type"].value_counts().to_string())
+    print("\nРаспределение источников меток (provenance):")
+    print(df["source"].value_counts().to_string())
 
-    print("\n[3/4] Обучение классификаторов (unclear исключается из оценки)...")
-    eval_res = train_and_evaluate_classifiers(df, target_col="type")
+    print("\n[3/4] Выбор модели по CV на train и оценка на ручной разметке...")
+    eval_res = train_and_evaluate_classifiers(
+        df,
+        target_col="type",
+        require_manual_eval=True,
+    )
 
-    print("\n=== Метрики моделей ===")
+    print("\n=== Сравнение моделей на кросс-валидации (train) ===")
     print(eval_res["metrics_df"].to_string(index=False))
-    print(f"\n=== Лучшая модель: {eval_res['best_model_name']} ===")
+    print(
+        f"\nMajority baseline (класс '{eval_res['majority_class']}'): "
+        f"accuracy={eval_res['majority_baseline_accuracy']:.4f}, "
+        f"f1_macro={eval_res['majority_baseline_f1_macro']:.4f}"
+    )
+    print(
+        f"Лучшая модель по CV: {eval_res['best_model_name']} | "
+        f"Test accuracy={eval_res['test_accuracy']:.4f}, "
+        f"Test f1_macro={eval_res['test_f1_macro']:.4f}, "
+        f"Test f1_weighted={eval_res['test_f1_weighted']:.4f}"
+    )
+    print("\nРазмеры выборок по классам (reviewed / train / test):")
+    for cls_name, cnts in eval_res["class_counts"].items():
+        print(
+            f" - {cls_name}: reviewed={cnts['total_reviewed']}, "
+            f"train={cnts['train']}, test={cnts['test']}"
+        )
+    print(f"\n=== Отчёт классификации на test ({eval_res['best_model_name']}) ===")
     print(eval_res["classification_report"])
 
-    print("[4/4] Сохранение графиков в docs/figures/...")
-    dist_plot, cm_plot = save_classification_figures(df, eval_res, figures_dir)
+    print(f"[4/4] Сохранение графиков в {figures_dir}...")
+    reviewed_only_df = df[df["source"].astype(str) == "manual"].copy()
+    dist_plot, cm_plot = save_classification_figures(reviewed_only_df, eval_res, figures_dir)
     print(f"Готово!\n - {dist_plot}\n - {cm_plot}")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Task 5: Classification")
-    parser.add_argument("--demo", action="store_true", help="Демо-режим")
+    parser.add_argument("--demo", action="store_true", help="Явный демо-режим без БД")
     parser.add_argument("--llm", action="store_true", help="Использовать LLM API")
-    parser.add_argument("--no-save", action="store_true", help="Не сохранять в БД")
+    parser.add_argument("--no-save", action="store_true", help="Не сохранять метки в БД")
     args = parser.parse_args()
 
     run_task5_pipeline(
