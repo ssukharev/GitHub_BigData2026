@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.dao.DataAccessResourceFailureException;
 import ru.spbstu.ghanalytics.core.CollectionContext;
@@ -368,6 +370,53 @@ class CommitActivityCollectorTest {
         assertThat(events).isEmpty();
         verify(commits, never()).replaceWeeks(anyLong(), anyList());
         assertThat(stats.snapshot()).containsEntry(CommitActivityCollector.FAILED_REPOS, 5L);
+    }
+
+    @Test
+    void anAuthorWithoutWeeksDoesNotClearTheSnapshotOrAdvanceTheCheckpoint() {
+        checkpoints.put(CommitActivityCollector.SOURCE, "1", "missing");
+        events.clear();
+        repos(ref(1, "a/no-weeks"));
+        stats("a/no-weeks", reply(200, "[{\"weeks\":[]}]"));
+
+        collector.collect(MARCH);
+
+        assertThat(events).as("no repository write or checkpoint update").isEmpty();
+        verify(commits, never()).replaceWeeks(anyLong(), anyList());
+        assertThat(checkpoints.get(CommitActivityCollector.SOURCE, "1")).contains("missing");
+        assertThat(asked).containsExactly(statsPath("a/no-weeks"));
+        assertThat(stats.snapshot()).containsEntry(CommitActivityCollector.FAILED_REPOS, 1L);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "[{\"weeks\":[{\"w\":1609632000,\"c\":4294967297}]}]",
+            "[{\"weeks\":[{\"w\":18446744073709551617,\"c\":1}]}]"
+    })
+    void outOfRangeNumbersDoNotReplaceTheSnapshotOrAdvanceTheCheckpoint(String body) {
+        checkpoints.put(CommitActivityCollector.SOURCE, "1", "missing");
+        events.clear();
+        repos(ref(1, "a/overflow"));
+        stats("a/overflow", reply(200, body));
+
+        collector.collect(MARCH);
+
+        assertThat(events).as("no narrowed integer reaches the database").isEmpty();
+        verify(commits, never()).replaceWeeks(anyLong(), anyList());
+        assertThat(checkpoints.get(CommitActivityCollector.SOURCE, "1")).contains("missing");
+        assertThat(asked).containsExactly(statsPath("a/overflow"));
+        assertThat(stats.snapshot()).containsEntry(CommitActivityCollector.FAILED_REPOS, 1L);
+    }
+
+    @Test
+    void aNegativeUnixTimestampIsRetainedWithoutInventingAZeroOrDeletingHistory() {
+        repos(ref(1, "a/pre-epoch"));
+        stats("a/pre-epoch", reply(200, "[{\"weeks\":[{\"w\":-345600,\"c\":1}]}]"));
+
+        collector.collect(MARCH);
+
+        verify(commits).replaceWeeks(1, List.of(new WeekRow(1, LocalDate.of(1969, 12, 28), 1, 1)));
+        assertThat(checkpoints.get(CommitActivityCollector.SOURCE, "1")).contains("done");
     }
 
     @Test

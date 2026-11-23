@@ -401,21 +401,23 @@ public class CommitActivityCollector implements Collector {
     }
 
     /**
-     * Every author an object with an array {@code weeks}, every week integral {@code w} and
-     * {@code c >= 0}. Checked before anything is written: a malformed answer must not replace the
+     * Every author an object with a nonempty array {@code weeks}, every week a long {@code w} and
+     * an integer {@code c >= 0}. Negative Unix times remain valid. Checked before anything is written:
+     * a malformed answer must not replace the
      * old weeks (a missing {@code w} would read as 1970-01-01).
      */
     static void validate(String fullName, JsonNode contributors) {
         for (JsonNode author : contributors) {
             JsonNode weeks = author.path("weeks");
-            if (!author.isObject() || !weeks.isArray()) {
+            if (!author.isObject() || !weeks.isArray() || weeks.isEmpty()) {
                 throw new IllegalStateException("/stats/contributors of " + fullName
-                        + ": an author without an array of weeks");
+                        + ": an author without a nonempty array of weeks");
             }
             for (JsonNode w : weeks) {
                 JsonNode start = w.path("w");
                 JsonNode count = w.path("c");
-                if (!start.isIntegralNumber() || !count.isIntegralNumber() || start.asLong() < 0 || count.asLong() < 0) {
+                if (!start.isIntegralNumber() || !start.canConvertToLong()
+                        || !count.isIntegralNumber() || !count.canConvertToInt() || count.asInt() < 0) {
                     throw new IllegalStateException("/stats/contributors of " + fullName
                             + ": a week without integral w and c >= 0: " + w);
                 }
