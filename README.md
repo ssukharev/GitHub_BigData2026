@@ -14,13 +14,41 @@ docker compose run --rm flyway   # after git pull: applies only new migrations, 
 
 `docker compose down -v` deletes the database together with its data.
 
+## Data without collecting
+
+There is no shared cloud database: everyone restores the release dumps into the local PostgreSQL
+above. The exact commands and checks are in the notes of each release.
+Prefer a fresh database. Replacing `core.repos` with `TRUNCATE ... CASCADE` also removes dependent
+READMEs, commit history, stars and labels; back up the existing data and restore the dependent
+datasets afterwards if a replacement is necessary. Do not restore the public dump over the full one.
+
+| Release | Tables | Order |
+|---|---|---|
+| `data-repos-2026-11-19` | `core.repos`, `core.repo_tree_entries`; the sample (`sample-repos.csv` with weights, windows, population) | first: the other repository tables reference `core.repos` |
+| full dump with README texts | the same plus `core.readmes` | instead of the public one, not over it; private link in the team chat (the texts are not ours to publish) |
+| `data-commits-2026-11-20` | `core.repo_commits_weekly`, `core.repos.contributors_total`, `core.repos.stats_truncated` | after `data-repos-2026-11-19` |
+| `data-gharchive-2026-11-17` | `core.gh_activity_hourly`, `core.gh_activity_monthly` | any time |
+
+```bash
+gh release download data-repos-2026-11-19 -R ssukharev/GitHub_BigData2026 -D dumps
+```
+
+`core.countries`, `core.population` and the Innovation Graph tables take minutes to collect with
+the separate Maven modules: `collector/worldbank` first (the country list), then
+`collector/innovation-graph`, each with `mvn -q compile exec:java` in its directory (see their README).
+
+What every table and column means, and what NULL means in it:
+[docs/data/data-dictionary.md](docs/data/data-dictionary.md). Quality checks of the collected data
+and their results: `sql/quality/checks.sql` and `docs/data/quality-2026-11.md` (#56).
+
 ## Collector (Java 21, Maven)
 
 ```bash
-mvn verify                  # builds all modules; integration tests (*IT) need Docker running
+mvn verify                  # builds collector modules; integration tests (*IT) need Docker running
 set -a; . ./.env; set +a    # export variables from .env into the current shell
 java -jar collector/app/target/collector.jar                      # usage and the list of sources
-java -jar collector/app/target/collector.jar --source=worldbank   # run one collector
+java -jar collector/app/target/collector.jar --source=<name>     # run one collector
+# World Bank and Innovation Graph are separate modules for now: see collector/worldbank and collector/innovation-graph
 ```
 
 GitHub sources need a personal access token (a classic token without scopes is enough)
