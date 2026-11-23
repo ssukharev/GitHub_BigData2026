@@ -13,7 +13,7 @@ COMMENT ON COLUMN raw.github_responses.source IS 'Имя операции GraphQ
 COMMENT ON COLUMN raw.github_responses.request_key IS 'Переменные запроса JSON с ключами по алфавиту';
 COMMENT ON COLUMN raw.github_responses.payload IS 'Тело ответа; символ \u0000 удалён';
 
-COMMENT ON TABLE core.repos IS 'Репозитории GitHub; одна строка = репозиторий. Значения на момент collected_at, не на момент создания. Выборка - created_at в окне docs/data/sample-windows.csv';
+COMMENT ON TABLE core.repos IS 'Репозитории GitHub; одна строка = репозиторий. Значения на момент collected_at, не на момент создания. Точный состав выборки - sample-repos.csv из релиза';
 COMMENT ON COLUMN core.repos.id IS 'fullDatabaseId (иначе databaseId): постоянный номер, не меняется при переименовании';
 COMMENT ON COLUMN core.repos.full_name IS 'owner/name на дату сбора';
 COMMENT ON COLUMN core.repos.homepage_url IS 'Сайт проекта; пустая строка GitHub записана как NULL';
@@ -38,8 +38,15 @@ COMMENT ON COLUMN core.repos.languages IS 'До 10 языков: {"язык": б
 COMMENT ON COLUMN core.repos.latest_release_at IS 'Публикация последнего релиза (latestRelease.publishedAt)';
 COMMENT ON COLUMN core.repos.collected_at IS 'Момент запуска сбора, один на весь запуск';
 
-COMMENT ON TABLE core.readmes IS 'README, который GitHub показывает на странице репозитория; нет строки - не проверяли';
+COMMENT ON TABLE core.readmes IS 'README, который GitHub показывает на странице репозитория; нет строки - не проверяли, запрос упал или восстановлен публичный дамп без README';
 COMMENT ON COLUMN core.readmes.text IS 'Текст README; NULL - проверили, README нет';
+
+COMMENT ON TABLE core.repo_labels IS 'Типы репозиториев; одна строка = репозиторий и источник метки. Проверенные метки используются для оценки задачи 5';
+COMMENT ON COLUMN core.repo_labels.repo_id IS 'Идентификатор репозитория, часть ключа (repo_id, source)';
+COMMENT ON COLUMN core.repo_labels.source IS 'manual - проверена человеком, llm - без ручной проверки, heuristic - правила';
+COMMENT ON COLUMN core.repo_labels.type IS 'Один из семи типов репозиториев или unclear (исключается из оценки)';
+COMMENT ON COLUMN core.repo_labels.labeled_by IS 'Автор или проверяющий метки';
+COMMENT ON COLUMN core.repo_labels.labeled_at IS 'Момент записи или обновления метки';
 
 COMMENT ON TABLE core.repo_tree_entries IS 'Имена в корне, src/ и .github/ ветки по умолчанию, не полное дерево';
 COMMENT ON COLUMN core.repo_tree_entries.path IS 'Имя с префиксом каталога: setup.py, src/test, .github/workflows';
@@ -71,7 +78,7 @@ COMMENT ON COLUMN core.population.population IS 'Население на сер�
 
 COMMENT ON TABLE core.innovation_graph IS 'GitHub Innovation Graph по странам и кварталам; метрика NULL - GitHub не опубликовал (меньше 100 разработчиков)';
 COMMENT ON COLUMN core.innovation_graph.country_code IS 'ISO-2; EU - агрегат, со странами ЕС не складывать';
-COMMENT ON COLUMN core.innovation_graph.developers IS 'Разработчики на конец квартала';
+COMMENT ON COLUMN core.innovation_graph.developers IS 'Учётные записи разработчиков на конец квартала, не уникальные люди';
 COMMENT ON COLUMN core.innovation_graph.repositories IS 'Репозитории на конец квартала';
 COMMENT ON COLUMN core.innovation_graph.git_pushes IS 'Push за квартал';
 
@@ -80,7 +87,7 @@ COMMENT ON COLUMN core.innovation_graph_topics.pushers IS 'Уникальные 
 
 COMMENT ON TABLE core.collection_runs IS 'Журнал запусков сборщиков';
 COMMENT ON COLUMN core.collection_runs.status IS 'running, success, failed; running у старого запуска - процесс остановлен без итога';
-COMMENT ON COLUMN core.collection_runs.params IS 'Параметры запуска: from, to, min_stars, limit, seed, resume';
+COMMENT ON COLUMN core.collection_runs.params IS 'Параметры запуска; для Innovation Graph requestedRef и разрешённый SHA ref';
 COMMENT ON COLUMN core.collection_runs.stats IS 'Счётчики источника: запросы, очки GraphQL, ожидание лимита, строки ClickHouse';
 
-COMMENT ON TABLE core.checkpoints IS 'Прогресс сборщиков для --resume: одна строка = завершённая часть работы';
+COMMENT ON TABLE core.checkpoints IS 'Прогресс сборщиков для --resume: одна строка = запись состояния (может быть незавершённая работа или очередь повторных попыток)';

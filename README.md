@@ -18,6 +18,9 @@ docker compose run --rm flyway   # after git pull: applies only new migrations, 
 
 There is no shared cloud database: everyone restores the release dumps into the local PostgreSQL
 above. The exact commands and checks are in the notes of each release.
+Prefer a fresh database. Replacing `core.repos` with `TRUNCATE ... CASCADE` also removes dependent
+READMEs, commit history, stars and labels; back up the existing data and restore the dependent
+datasets afterwards if a replacement is necessary. Do not restore the public dump over the full one.
 
 | Release | Tables | Order |
 |---|---|---|
@@ -41,7 +44,7 @@ and their results: `sql/quality/checks.sql` and `docs/data/quality-2026-11.md` (
 ## Collector (Java 21, Maven)
 
 ```bash
-mvn verify                  # builds all modules; integration tests (*IT) need Docker running
+mvn verify                  # builds collector modules; integration tests (*IT) need Docker running
 set -a; . ./.env; set +a    # export variables from .env into the current shell
 java -jar collector/app/target/collector.jar                      # usage and the list of sources
 java -jar collector/app/target/collector.jar --source=<name>     # run one collector
