@@ -33,7 +33,7 @@ class CollectorArgsTest {
     @Test
     void parsesAllOptions() {
         CollectorArgs args = parse("--source=github-repos", "--from=2024-01-01", "--to=2024-01-31",
-                "--min-stars=10", "--limit=200", "--resume");
+                "--min-stars=10", "--limit=200", "--seed=42", "--resume");
 
         assertThat(args.context().from()).isEqualTo(LocalDate.of(2024, 1, 1));
         assertThat(args.context().to()).isEqualTo(LocalDate.of(2024, 1, 31));
@@ -77,6 +77,21 @@ class CollectorArgsTest {
                 .isInstanceOf(InvalidArgumentsException.class)
                 .hasMessageContaining(option)
                 .hasMessageContaining("requires a value");
+    }
+
+    @Test
+    void rejectsBadSeed() {
+        assertThatThrownBy(() -> parse("--source=github-repos", "--seed=forty-two"))
+                .isInstanceOf(InvalidArgumentsException.class)
+                .hasMessageContaining("--seed");
+        assertThatThrownBy(() -> parse("--source=github-repos", "--seed=1", "--seed=2"))
+                .isInstanceOf(InvalidArgumentsException.class)
+                .hasMessageContaining("2 times");
+    }
+
+    @Test
+    void usageListsTheSeed() {
+        assertThat(CollectorArgs.USAGE).contains("--seed=N");
     }
 
     @Test
