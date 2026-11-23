@@ -1,0 +1,24 @@
+{
+  "data_kind": "human_reviewed",
+  "label_source": "manual",
+  "selection": "training CV macro-F1; alphabetical model name on ties",
+  "seed": 42,
+  "test_size": 0.25,
+  "cv_splits": 4,
+  "reviewed_rows": 150,
+  "excluded_unclear": 6,
+  "evaluation_rows": 144,
+  "train_rows": 108,
+  "test_rows": 36,
+  "selected_model": "RandomForest",
+  "feature_input_sha256": "af8d2f9185556d63c3ccf6c222471ca5ae64d9dd8d908cd13560ff5045acebea",
+  "versions": {
+    "python": "3.13.7",
+    "pandas": "3.1.1",
+    "numpy": "2.5.5",
+    "scikit-learn": "1.9.1"
+  },
+  "label_csv": "task5-manual-labels.csv",
+  "label_csv_sha256": "444c08445c1ee62573d85cddc93ededf417247eddea0dd50b9fbdc8562963918",
+  "provenance": "LLM-proposed labels reviewed by Stanislav Rushkevich"
+}
