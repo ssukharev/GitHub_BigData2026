@@ -2,6 +2,7 @@ import base64
 import csv
 
 import pytest
+
 from quality import heuristics_check as check
 
 
