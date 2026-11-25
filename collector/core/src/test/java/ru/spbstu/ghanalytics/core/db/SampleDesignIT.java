@@ -137,6 +137,18 @@ class SampleDesignIT {
     }
 
     @Test
+    void aForkInAWindowIsNotInTheSample() {
+        repo(1, "2018-01-28T18:52:00Z");
+        repo(2, "2018-01-28T18:53:00Z");
+        jdbc.update("UPDATE core.repos SET is_fork = true WHERE id = 2");
+
+        Map<String, Object> only = jdbc.queryForMap("SELECT repo_id, month_n FROM marts.repos_weighted");
+
+        assertThat(only).as("the search of the sample excludes forks").containsEntry("repo_id", 1L)
+                .containsEntry("month_n", 1L);
+    }
+
+    @Test
     void theWindowOfARepositoryIsTheOneItWasCreatedIn() {
         repo(1, "2018-01-28T18:55:00Z");
 
