@@ -7,16 +7,18 @@
 -- cannot be rebuilt from weeks.
 -- Cut on both ends: weeks before the week of created_at (history imported from elsewhere) and the
 -- week of collection and later (partial). The week of collection is the latest collection_week of
--- github-commits in core.data_snapshots (2026-11-15 for data-commits-2026-11-20); without such a row,
--- the last week in the table, which is the week of the last collection.
+-- github-commits in core.data_snapshots (2026-11-15 for data-commits-2026-11-20). Without a recorded
+-- cutoff the view returns no rows: the maximum observed week cannot reliably identify the partial
+-- collection week, e.g. if a malformed future week was imported or the partial week is absent.
 -- Weekly contributors are not summed: the same person in several weeks is not several people.
 -- Repositories with stats_truncated keep their rows with the flag, their commits are too low; a
 -- repository without weekly rows has no rows here, which means unknown, not inactive.
 
 CREATE OR REPLACE VIEW marts.repo_commits_monthly AS
 WITH cutoff AS (
-    SELECT coalesce((SELECT max(collection_week) FROM core.data_snapshots WHERE source = 'github-commits'),
-                    (SELECT max(week) FROM core.repo_commits_weekly)) AS collection_week
+    SELECT max(collection_week) AS collection_week
+    FROM core.data_snapshots
+    WHERE source = 'github-commits'
 )
 SELECT c.repo_id,
        date_trunc('month', c.week)::date            AS month,
@@ -33,7 +35,7 @@ WHERE c.week > (r.created_at AT TIME ZONE 'UTC')::date - 7    -- the week of cre
 GROUP BY c.repo_id, date_trunc('month', c.week), r.stats_truncated;
 
 COMMENT ON VIEW marts.repo_commits_monthly IS
-    'Коммиты выборки по репозиторию и месяцу начала недели; без истории до недели создания и без неполной недели сбора (core.data_snapshots)';
+    'Коммиты выборки по репозиторию и месяцу начала недели; без истории до недели создания и без неполной недели сбора (core.data_snapshots); без метаданных недели сбора строк нет';
 COMMENT ON COLUMN marts.repo_commits_monthly.month IS
     'Месяц воскресенья, с которого начинается неделя: неделя на стыке месяцев целиком идёт в месяц своего начала';
 COMMENT ON COLUMN marts.repo_commits_monthly.commits IS 'Сумма commits недель месяца; у stats_truncated занижена';

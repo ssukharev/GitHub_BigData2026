@@ -12,6 +12,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -31,6 +32,10 @@ class MartsRepoCommitsMonthlyIT {
     static void migrate() {
         DriverManagerDataSource dataSource =
                 new DriverManagerDataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
+        // JdbcTemplate opens a new connection per operation; set the non-UTC timezone on each one.
+        Properties connectionProperties = new Properties();
+        connectionProperties.setProperty("options", "-c TimeZone=Pacific/Honolulu");
+        dataSource.setConnectionProperties(connectionProperties);
         Flyway.configure().dataSource(dataSource).locations("classpath:db/migration").load().migrate();
         jdbc = new JdbcTemplate(dataSource);
     }
@@ -38,8 +43,8 @@ class MartsRepoCommitsMonthlyIT {
     @BeforeEach
     void cleanUp() {
         jdbc.update("DELETE FROM core.repos");   // weekly rows go by ON DELETE CASCADE
+        jdbc.update("DELETE FROM core.sample_repositories");
         jdbc.update("DELETE FROM core.data_snapshots WHERE release LIKE 'local-%'");
-        jdbc.execute("SET TIME ZONE 'Europe/Moscow'");
     }
 
     private static void repo(long id, String createdAt) {
@@ -63,6 +68,7 @@ class MartsRepoCommitsMonthlyIT {
     /** Created on Sunday 2018-01-28 in the first window of the sample. */
     private static void sampleRepository() {
         repo(1, "2018-01-28T18:51:00Z");
+        jdbc.update("INSERT INTO core.sample_repositories (repo_id, month) VALUES (1, '2018-01-01')");
         week(1, "2018-01-21", 5);   // before the week of creation: imported history
         week(1, "2018-01-28", 3);
         week(1, "2018-02-04", 0);
@@ -79,6 +85,30 @@ class MartsRepoCommitsMonthlyIT {
         assertThat(months(1)).extracting(m -> m.get("month") + " " + m.get("commits") + " " + m.get("active_weeks") + " "
                         + m.get("observed_weeks"))
                 .containsExactly("2018-01-01 3 1 1", "2018-02-01 2 1 2", "2018-03-01 1 1 1", "2026-11-01 4 1 1");
+    }
+
+    @Test
+    void aWeekWithZeroCommitsIsObservedButMissingWeeksAreNotFilled() {
+        sampleRepository();
+        week(1, "2018-04-29", 0);   // crosses into May but belongs to April
+
+        assertThat(months(1)).extracting(m -> m.get("month") + " " + m.get("commits") + " "
+                        + m.get("active_weeks") + " " + m.get("observed_weeks"))
+                .containsExactly("2018-01-01 3 1 1", "2018-02-01 2 1 2", "2018-03-01 1 1 1",
+                        "2018-04-01 0 0 1", "2026-11-01 4 1 1");
+    }
+
+    @Test
+    void theWeekOfCreationIsCalculatedInUtcRatherThanTheSessionTimezone() {
+        // Sunday in UTC, but still Saturday in Honolulu. The previous Sunday must be excluded.
+        assertThat(jdbc.queryForObject("SHOW TimeZone", String.class)).isEqualTo("Pacific/Honolulu");
+        repo(1, "2018-01-07T09:51:00Z");
+        jdbc.update("INSERT INTO core.sample_repositories (repo_id, month) VALUES (1, '2018-01-01')");
+        week(1, "2017-12-31", 100);
+        week(1, "2018-01-07", 7);
+
+        assertThat(months(1)).extracting(m -> m.get("month") + " " + m.get("commits"))
+                .containsExactly("2018-01-01 7");
     }
 
     @Test
@@ -104,13 +134,12 @@ class MartsRepoCommitsMonthlyIT {
     }
 
     @Test
-    void withoutASnapshotTheLastWeekInTheTableIsTakenForTheWeekOfCollection() {
+    void withoutASnapshotTheCutoffCannotBeInferredFromTheWeeks() {
         sampleRepository();
+        week(1, "2099-01-04", 100);
         jdbc.update("DELETE FROM core.data_snapshots WHERE source = 'github-commits'");
         try {
-            Map<String, Object> november = months(1).get(3);
-
-            assertThat(november).containsEntry("commits", 4L).containsEntry("observed_weeks", 1L);
+            assertThat(months(1)).isEmpty();
         } finally {
             jdbc.update("""
                     INSERT INTO core.data_snapshots (release, source, collected_from, collected_to, collection_week, note)
@@ -123,7 +152,10 @@ class MartsRepoCommitsMonthlyIT {
     void repositoriesOutsideTheSampleAreLeftOut() {
         repo(2, "2017-06-01T00:00:00Z");
         week(2, "2018-01-28", 7);
+        repo(3, "2018-01-28T18:51:00Z"); // inside a window, but not in the sample
+        week(3, "2018-02-04", 5);
 
         assertThat(months(2)).isEmpty();
+        assertThat(months(3)).isEmpty();
     }
 }
