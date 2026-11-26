@@ -103,3 +103,31 @@ Limits of the series: [docs/gharchive-limits.md](docs/gharchive-limits.md).
 
 The collector applies the same Flyway migrations on start. Data sources are plugged in
 as Spring beans implementing `Collector`; each one writes its run to `core.collection_runs`.
+
+## Automated checks
+
+GitHub Actions runs [Project checks](.github/workflows/checks.yml) on pull requests and pushes
+to `main`: four Java 21 checks (the collector and the standalone World Bank, Innovation Graph
+and analytics modules), plus Python 3.13 Ruff and pytest. PostgreSQL integration tests run in
+disposable databases; an extra JUnit-report check fails if required database tests were skipped.
+The workflow has read-only repository permissions and passes no GitHub or LLM credentials.
+Optional live GitHub tests remain opt-in; no collectors or paid APIs run in CI.
+
+Local equivalents, with Docker running, Java 21 selected and Python 3.13 in an activated environment:
+
+```bash
+mvn -B -ntp verify
+mvn -B -ntp -f collector/worldbank/pom.xml verify
+mvn -B -ntp -f collector/innovation-graph/pom.xml verify
+mvn -B -ntp -f analytics-java/pom.xml verify
+python -m pip install -e "analytics-py[dev]" -r analytics-py/collectors/requirements-stars-test.txt
+python -m ruff check analytics-py
+python -m pytest -q analytics-py/tests
+```
+
+For the seven Python PostgreSQL checks, set `TASK5_TEST_DATABASE_URL` to a separate migrated
+database named `task5_review_*` and `STARS_TEST_DATABASE_URL` to another named `stars_review_*`.
+Without these explicit test URLs, local pytest skips those opt-in checks; CI supplies both URLs
+and verifies that they ran. Use the Flyway migrations in `collector/core`, as in the workflow;
+the project's working database is not a test database. The recorded classifier experiment also
+has its own version snapshot in `analytics-py/results/task5/environment.txt`.

@@ -1,0 +1,119 @@
+name: Project checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: checks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  java:
+    name: Java / ${{ matrix.name }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: collector
+            pom: pom.xml
+            integration_reports: collector/*/target/failsafe-reports/TEST-*.xml
+          - name: World Bank
+            pom: collector/worldbank/pom.xml
+            integration_reports: collector/worldbank/target/surefire-reports/TEST-*WorldBankLoaderTest.xml
+          - name: Innovation Graph
+            pom: collector/innovation-graph/pom.xml
+            integration_reports: collector/innovation-graph/target/surefire-reports/TEST-*InnovationGraphLoaderTest.xml
+          - name: analytics
+            pom: analytics-java/pom.xml
+            integration_reports: analytics-java/target/surefire-reports/TEST-*SqlQueriesTest.xml
+    env:
+      COLLECTOR_GITHUB_TOKENS: ""
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+          cache-dependency-path: "**/pom.xml"
+      - name: Check Docker
+        run: docker info > /dev/null
+      - name: Verify Maven project
+        env:
+          PROJECT_POM: ${{ matrix.pom }}
+        run: mvn -B -ntp --file "$PROJECT_POM" verify
+      - name: Require executed PostgreSQL tests
+        env:
+          INTEGRATION_REPORTS: ${{ matrix.integration_reports }}
+        run: python3 .github/scripts/assert_integration_tests.py --reports "$INTEGRATION_REPORTS"
+
+  python:
+    name: Python / Ruff and PostgreSQL tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: gha
+          POSTGRES_PASSWORD: ci-only
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U gha -d postgres"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      MPLBACKEND: Agg
+      TASK5_TEST_DATABASE_URL: postgresql+psycopg2://gha:ci-only@127.0.0.1:5432/task5_review_ci
+      STARS_TEST_DATABASE_URL: postgresql+psycopg2://gha:ci-only@127.0.0.1:5432/stars_review_ci
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: |
+            analytics-py/pyproject.toml
+            analytics-py/collectors/requirements-stars*.txt
+      - name: Install Python dependencies
+        run: python -m pip install -e "analytics-py[dev]" -r analytics-py/collectors/requirements-stars-test.txt
+      - name: Create isolated databases and apply Flyway migrations
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          for database in task5_review_ci stars_review_ci; do
+            docker exec "$POSTGRES_CONTAINER" createdb -U gha --maintenance-db=postgres "$database"
+            docker run --rm --network host \
+              -v "$PWD/collector/core/src/main/resources/db/migration:/flyway/sql:ro" \
+              flyway/flyway:11 \
+              -url="jdbc:postgresql://127.0.0.1:5432/$database" \
+              -user=gha -password=ci-only -validateMigrationNaming=true migrate
+          done
+      - name: Ruff
+        run: python -m ruff check analytics-py
+      - name: Pytest
+        run: python -m pytest -q analytics-py/tests --junitxml=python-test-results.xml
+      - name: Require executed PostgreSQL tests
+        run: |
+          python .github/scripts/assert_integration_tests.py \
+            --reports python-test-results.xml --class-suffix test_manual_labels_postgres --minimum 3
+          python .github/scripts/assert_integration_tests.py \
+            --reports python-test-results.xml --name-prefix test_postgres_ --minimum 4
