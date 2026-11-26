@@ -1,18 +1,19 @@
 package ru.spbstu.ghanalytics.core.db;
 
 import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Properties;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -27,17 +28,24 @@ class MartsRepoCommitsMonthlyIT {
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16");
 
     private static JdbcTemplate jdbc;
+    private static SingleConnectionDataSource testDataSource;
 
     @BeforeAll
     static void migrate() {
         DriverManagerDataSource dataSource =
                 new DriverManagerDataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
-        // JdbcTemplate opens a new connection per operation; set the non-UTC timezone on each one.
-        Properties connectionProperties = new Properties();
-        connectionProperties.setProperty("options", "-c TimeZone=Pacific/Honolulu");
-        dataSource.setConnectionProperties(connectionProperties);
         Flyway.configure().dataSource(dataSource).locations("classpath:db/migration").load().migrate();
-        jdbc = new JdbcTemplate(dataSource);
+        // Preserve the session timezone for all statements in a test.
+        testDataSource = new SingleConnectionDataSource(postgres.getJdbcUrl(), postgres.getUsername(),
+                postgres.getPassword(), true);
+        jdbc = new JdbcTemplate(testDataSource);
+    }
+
+    @AfterAll
+    static void closeConnection() {
+        if (testDataSource != null) {
+            testDataSource.destroy();
+        }
     }
 
     @BeforeEach
@@ -45,6 +53,8 @@ class MartsRepoCommitsMonthlyIT {
         jdbc.update("DELETE FROM core.repos");   // weekly rows go by ON DELETE CASCADE
         jdbc.update("DELETE FROM core.sample_repositories");
         jdbc.update("DELETE FROM core.data_snapshots WHERE release LIKE 'local-%'");
+        jdbc.execute("SET TIME ZONE 'Pacific/Honolulu'");
+        assertThat(jdbc.queryForObject("SHOW TIME ZONE", String.class)).isEqualTo("Pacific/Honolulu");
     }
 
     private static void repo(long id, String createdAt) {
