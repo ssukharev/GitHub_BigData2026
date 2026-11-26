@@ -1,12 +1,14 @@
 package ru.spbstu.ghanalytics.core.db;
 
 import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -36,19 +38,31 @@ class SampleDesignIT {
     private static final Path DATA = Path.of("..", "..", "docs", "data");
 
     private static JdbcTemplate jdbc;
+    private static SingleConnectionDataSource testDataSource;
 
     @BeforeAll
     static void migrate() {
         DriverManagerDataSource dataSource =
                 new DriverManagerDataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
         Flyway.configure().dataSource(dataSource).locations("classpath:db/migration").load().migrate();
-        jdbc = new JdbcTemplate(dataSource);
+        // The zone set below must apply to the queries, not to a different short-lived connection.
+        testDataSource = new SingleConnectionDataSource(postgres.getJdbcUrl(), postgres.getUsername(),
+                postgres.getPassword(), true);
+        jdbc = new JdbcTemplate(testDataSource);
+    }
+
+    @AfterAll
+    static void closeConnection() {
+        if (testDataSource != null) {
+            testDataSource.destroy();
+        }
     }
 
     @BeforeEach
     void cleanUp() {
         jdbc.update("DELETE FROM core.repos");
         jdbc.execute("SET TIME ZONE 'Europe/Moscow'");   // nothing here may depend on the session zone
+        assertThat(jdbc.queryForObject("SHOW TIME ZONE", String.class)).isEqualTo("Europe/Moscow");
     }
 
     private static List<String> csv(String name) throws IOException {
@@ -89,10 +103,44 @@ class SampleDesignIT {
     }
 
     @Test
+    void theMembershipTableIsThePublishedRepositoryIdProjection() throws IOException {
+        List<String> rows = jdbc.queryForList("""
+                SELECT repo_id || ',' || to_char(month, 'YYYY-MM-DD')
+                FROM core.sample_repositories ORDER BY month, repo_id""", String.class);
+
+        assertThat(rows).containsExactlyInAnyOrderElementsOf(csv("sample-repository-ids.csv"));
+        assertThat(rows).hasSize(5250);
+        assertThat(jdbc.queryForObject("""
+                SELECT count(*) FROM (
+                    SELECT month, sum(repos) AS n FROM core.sample_windows GROUP BY month
+                ) w FULL JOIN (
+                    SELECT month, count(*) AS n FROM core.sample_repositories GROUP BY month
+                ) r USING (month) WHERE w.n IS DISTINCT FROM r.n""", Long.class)).isZero();
+    }
+
+    @Test
     void overlappingWindowsAreRejected() {
         assertThatThrownBy(() -> jdbc.update("""
                 INSERT INTO core.sample_windows (window_from, window_to, month, repos, taken)
                 VALUES ('2018-01-28T18:55:00Z', '2018-01-28T19:04:59Z', '2018-01-01', 1, 100000)"""))
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    void aWindowMustBeInItsUtcStratum() {
+        assertThatThrownBy(() -> jdbc.update("""
+                INSERT INTO core.sample_windows (window_from, window_to, month, repos, taken)
+                VALUES ('2018-01-01T00:00:00Z', '2018-01-01T00:09:59Z', '2018-02-01', 1, 100000)"""))
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    void aMembershipMustBeUniqueAndReferToASampledMonth() {
+        assertThatThrownBy(() -> jdbc.update("""
+                INSERT INTO core.sample_repositories (repo_id, month) VALUES (115931883, '2018-02-01')"""))
+                .isInstanceOf(DataIntegrityViolationException.class);
+        assertThatThrownBy(() -> jdbc.update("""
+                INSERT INTO core.sample_repositories (repo_id, month) VALUES (1, '2017-01-01')"""))
                 .isInstanceOf(DataIntegrityViolationException.class);
     }
 
@@ -119,41 +167,46 @@ class SampleDesignIT {
     // ---- marts.repos_weighted ----
 
     @Test
-    void onlyRepositoriesInAWindowAreWeightedByTheirMonth() {
-        repo(1, "2018-01-28T18:50:00Z");   // the first window of sample-windows.csv, both bounds included
-        repo(2, "2018-01-28T18:59:59Z");
-        repo(3, "2018-01-28T19:00:00Z");   // one second after it
-        repo(4, "2017-06-01T00:00:00Z");   // outside the frame
+    void onlyPublishedIdsInTheirWindowAreWeightedByPublishedMonthSize() {
+        repo(115931883, "2018-01-01T16:40:00Z");   // actual member IDs, both bounds included
+        repo(115931886, "2018-01-01T16:49:59Z");
+        repo(115974006, "2018-01-01T16:50:00Z");   // member ID, invalid restored creation time
+        repo(1, "2018-01-01T16:45:00Z");          // unrelated repo inside the very same window
+        repo(2, "2017-06-01T00:00:00Z");          // outside the frame
 
         List<Map<String, Object>> rows = jdbc.queryForList(
                 "SELECT repo_id, created_month::text AS month, month_n, month_population, weight "
                         + "FROM marts.repos_weighted ORDER BY repo_id");
 
-        assertThat(rows).extracting(r -> r.get("repo_id")).containsExactly(1L, 2L);
-        assertThat(rows.get(0)).containsEntry("month", "2018-01-01").containsEntry("month_n", 2L)
+        assertThat(rows).extracting(r -> r.get("repo_id")).containsExactly(115931883L, 115931886L);
+        assertThat(rows.get(0)).containsEntry("month", "2018-01-01").containsEntry("month_n", 53L)
                 .containsEntry("month_population", 19_399);
-        assertThat((BigDecimal) rows.get(0).get("weight")).as("population / n of the month")
-                .isEqualByComparingTo("9699.5");
+        assertThat((BigDecimal) rows.get(0).get("weight")).as("population / released n of the month")
+                .isEqualByComparingTo("366.0188679245283019");
+
+        jdbc.update("DELETE FROM core.repos WHERE id = 115931886");
+        assertThat(jdbc.queryForMap("SELECT month_n, weight FROM marts.repos_weighted"))
+                .containsEntry("month_n", 53L).containsEntry("weight", rows.get(0).get("weight"));
     }
 
     @Test
     void aForkInAWindowIsNotInTheSample() {
-        repo(1, "2018-01-28T18:52:00Z");
-        repo(2, "2018-01-28T18:53:00Z");
-        jdbc.update("UPDATE core.repos SET is_fork = true WHERE id = 2");
+        repo(115931883, "2018-01-01T16:41:51Z");
+        repo(115931886, "2018-01-01T16:41:54Z");
+        jdbc.update("UPDATE core.repos SET is_fork = true WHERE id = 115931886");
 
         Map<String, Object> only = jdbc.queryForMap("SELECT repo_id, month_n FROM marts.repos_weighted");
 
-        assertThat(only).as("the search of the sample excludes forks").containsEntry("repo_id", 1L)
-                .containsEntry("month_n", 1L);
+        assertThat(only).as("the search of the sample excludes forks; weights are not inflated")
+                .containsEntry("repo_id", 115931883L).containsEntry("month_n", 53L);
     }
 
     @Test
     void theWindowOfARepositoryIsTheOneItWasCreatedIn() {
-        repo(1, "2018-01-28T18:55:00Z");
+        repo(115931883, "2018-01-01T16:41:51Z");
 
         OffsetDateTime from = jdbc.queryForObject("SELECT window_from FROM marts.repos_weighted", OffsetDateTime.class);
 
-        assertThat(from.toInstant()).isEqualTo(OffsetDateTime.parse("2018-01-28T18:50:00Z").toInstant());
+        assertThat(from.toInstant()).isEqualTo(OffsetDateTime.parse("2018-01-01T16:40:00Z").toInstant());
     }
 }
