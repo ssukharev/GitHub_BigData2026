@@ -39,7 +39,7 @@ class MartsReposByYearIT {
     @BeforeEach
     void cleanUp() {
         jdbc.update("DELETE FROM core.repos");
-        jdbc.execute("SET TIME ZONE 'Europe/Moscow'");
+        jdbc.update("DELETE FROM core.sample_repositories");
     }
 
     /** has_* and license may be null; stars as given. */
@@ -66,6 +66,12 @@ class MartsReposByYearIT {
         repo(4, "2019-01-25T00:51:00Z", 40, null, null, null, "Apache-2.0");
         // outside every window
         repo(5, "2017-06-01T00:00:00Z", 50, true, true, true, "MIT");
+        // within a window but not in the published sample
+        repo(6, "2018-01-28T18:53:00Z", 100, true, true, true, "MIT");
+        jdbc.update("""
+                INSERT INTO core.sample_repositories (repo_id, month)
+                VALUES (1, '2018-01-01'), (2, '2018-01-01'), (3, '2018-02-01'), (4, '2019-01-01')""");
+        jdbc.update("UPDATE core.repos SET is_archived = true WHERE id = 2");
     }
 
     @Test
@@ -102,6 +108,18 @@ class MartsReposByYearIT {
                 .containsEntry("tests_known_n", 0L);
         assertThat(y2019.get("tests_share")).as("unknown, not 0").isNull();
         assertThat((BigDecimal) y2019.get("tests_known_weight")).isEqualByComparingTo("0");
+    }
+
+    @Test
+    void aPartiallyRestoredSampleDoesNotInflateLoadedWeights() {
+        sample();
+        jdbc.update("DELETE FROM core.repos WHERE id = 2");
+
+        Map<String, Object> y2018 = year(2018);
+
+        assertThat(y2018).containsEntry("sample_n", 2L).containsEntry("population_n", 27_120L);
+        assertThat((BigDecimal) y2018.get("tests_known_weight")).isEqualByComparingTo("27119.5");
+        assertThat((BigDecimal) y2018.get("tests_share")).isEqualByComparingTo("0.3577");
     }
 
     @Test
