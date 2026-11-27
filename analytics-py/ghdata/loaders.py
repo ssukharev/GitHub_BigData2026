@@ -245,3 +245,98 @@ def load_gh_activity_monthly(
         ORDER BY month, event_type, is_bot
     """
     return pd.read_sql_query(text(query), eng)
+
+def load_data_snapshots(engine: Optional[Engine] = None) -> pd.DataFrame:
+    """Выгружает метаданные снимков данных из core.data_snapshots."""
+    eng = engine or get_engine()
+    query = """
+        SELECT
+            release,
+            source,
+            collected_from,
+            collected_to,
+            collection_week,
+            note
+        FROM core.data_snapshots
+        ORDER BY collected_to, release
+    """
+    return pd.read_sql_query(text(query), eng)
+
+
+def load_repos_weighted(engine: Optional[Engine] = None) -> pd.DataFrame:
+    """Выгружает базовую витрину выборки с весами marts.repos_weighted."""
+    eng = engine or get_engine()
+    query = """
+        SELECT
+            repo_id,
+            created_month,
+            window_from,
+            month_n,
+            month_population,
+            weight
+        FROM marts.repos_weighted
+        ORDER BY created_month, repo_id
+    """
+    return pd.read_sql_query(text(query), eng)
+
+
+def load_repos_by_year(engine: Optional[Engine] = None) -> pd.DataFrame:
+    """Выгружает витрину когорт по годам создания marts.repos_by_year (задача 1)."""
+    eng = engine or get_engine()
+    query = """
+        SELECT *
+        FROM marts.repos_by_year
+        ORDER BY year
+    """
+    return pd.read_sql_query(text(query), eng)
+
+
+def load_repo_commits_monthly(
+    engine: Optional[Engine] = None,
+    exclude_truncated: bool = False,
+) -> pd.DataFrame:
+    """Выгружает помесячную активность коммитов выборки marts.repo_commits_monthly."""
+    eng = engine or get_engine()
+    where_clause = "WHERE COALESCE(stats_truncated, FALSE) = FALSE" if exclude_truncated else ""
+    query = f"""
+        SELECT *
+        FROM marts.repo_commits_monthly
+        {where_clause}
+        ORDER BY repo_id, month
+    """
+    return pd.read_sql_query(text(query), eng)
+
+
+def load_gh_activity_monthly_valid(
+    engine: Optional[Engine] = None,
+    exclude_bots: bool = False,
+    exclude_known_gaps: bool = False,
+) -> pd.DataFrame:
+    """Выгружает валидированную помесячную активность GH Archive marts.gh_activity_monthly_valid."""
+    eng = engine or get_engine()
+    conditions = []
+    if exclude_bots:
+        conditions.append("is_bot = FALSE")
+    if exclude_known_gaps:
+        conditions.append("known_gap = FALSE")
+
+    where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    query = f"""
+        SELECT
+            month,
+            event_type,
+            is_bot,
+            events,
+            actors,
+            repos,
+            commits,
+            hours_in_month,
+            hours_present,
+            hour_coverage,
+            low_push_days,
+            known_gap
+        FROM marts.gh_activity_monthly_valid
+        {where_clause}
+        ORDER BY month, event_type, is_bot
+    """
+    return pd.read_sql_query(text(query), eng)
