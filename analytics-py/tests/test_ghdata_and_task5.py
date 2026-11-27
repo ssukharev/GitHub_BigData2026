@@ -7,6 +7,7 @@ import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 
+from ghdata import loaders
 from ghdata.classification import (
     REPO_TYPES,
     build_labeled_dataset,
@@ -234,6 +235,57 @@ def test_existing_label_provenance_is_preserved_without_nan_promotion():
     data.loc[1, "source"] = "manual"
     with pytest.raises(ValueError, match="reviewer provenance"):
         build_labeled_dataset(data)
+
+
+def test_new_marts_and_snapshot_loaders(monkeypatch):
+    executed = []
+
+    def fake_read_sql_query(sql_obj, eng, params=None):
+        sql_str = str(sql_obj)
+        executed.append((sql_str, params))
+        if "marts.gh_activity_monthly_valid" in sql_str:
+            return pd.DataFrame(
+                [
+                    {
+                        "month": "2024-01-01",
+                        "event_type": "PushEvent",
+                        "is_bot": False,
+                        "events": 10,
+                        "actors": 5,
+                        "repos": 4,
+                        "commits": 10,
+                        "hours_in_month": 744,
+                        "hours_present": 744,
+                        "hour_coverage": 1.0,
+                        "low_push_days": 0,
+                        "known_gap": False,
+                    }
+                ]
+            )
+        return pd.DataFrame({"ok": [1]})
+
+    monkeypatch.setattr(loaders.pd, "read_sql_query", fake_read_sql_query)
+    dummy_engine = object()
+
+    loaders.load_data_snapshots(engine=dummy_engine)
+    loaders.load_repos_weighted(engine=dummy_engine)
+    loaders.load_repos_by_year(engine=dummy_engine)
+    loaders.load_repo_commits_monthly(engine=dummy_engine, exclude_truncated=True)
+    df_valid = loaders.load_gh_activity_monthly_valid(
+        engine=dummy_engine,
+        exclude_bots=True,
+        exclude_known_gaps=True,
+    )
+
+    assert len(executed) == 5
+    assert "core.data_snapshots" in executed[0][0]
+    assert "marts.repos_weighted" in executed[1][0]
+    assert "marts.repos_by_year" in executed[2][0]
+    assert "marts.repo_commits_monthly" in executed[3][0]
+    assert "COALESCE(stats_truncated, FALSE) = FALSE" in executed[3][0]
+    assert "is_bot = FALSE" in executed[4][0]
+    assert "known_gap = FALSE" in executed[4][0]
+    assert len(df_valid) == 1
 
 
 def test_sqlite_query_integration():
